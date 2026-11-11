@@ -319,6 +319,10 @@ final class Canvas: PDFView {
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
         window?.tabbingMode = .preferred
+        // Opening a PDF opens that PDF only, at once: macOS reopening the last session's documents along with it made a cold
+        // start take up to a second longer, and its zoom-in held the window back another fraction of one.
+        window?.isRestorable = false
+        window?.animationBehavior = .none
     }
 
     override func mouseDown(with event: NSEvent) {
