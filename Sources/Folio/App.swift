@@ -99,9 +99,19 @@ extension FolioApp {
 #endif
 
 #if os(macOS)
+// Written out by hand: the @Entry macro's plugin ships only with Xcode, not the Command Line Tools.
+private struct ViewerKey: FocusedValueKey { typealias Value = Viewer }
+private struct SearchFocusKey: FocusedValueKey { typealias Value = FocusState<Bool>.Binding }
+
 extension FocusedValues {
-    @Entry var viewer: Viewer?
-    @Entry var searchFocus: FocusState<Bool>.Binding?
+    var viewer: Viewer? {
+        get { self[ViewerKey.self] }
+        set { self[ViewerKey.self] = newValue }
+    }
+    var searchFocus: FocusState<Bool>.Binding? {
+        get { self[SearchFocusKey.self] }
+        set { self[SearchFocusKey.self] = newValue }
+    }
 }
 #else
 /// The document in the key window, for the menu bar: iPad's commands don't see a document's focused values.
