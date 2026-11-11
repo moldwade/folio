@@ -39,7 +39,7 @@
 - **Save.** Your changes stay out of the file until you save them with ⌘S. Closing or quitting with unsaved changes asks whether to save them. File › Save As… (⌥⇧⌘S) saves the document under a new name, and you keep working in the new file.
 - **Undo.** Every change can be undone and redone.
 - **iPhone and iPad.** A document opens to read, with Pages, Find, the page number, Markup and Sign at its foot. Sign asks for your signature the first time, then places it where you tap. Markup shows every tool on iPad, and on iPhone the ones used most, with the rest under More Tools; Done puts them away. Out of Markup, the Tools menu has Undo and Redo. Folio saves your changes as you make them, and Done or Tools › Save saves them at once; Tools › Save a Copy… saves a copy in a folder you choose. Create from Photos, on the launch screen, makes a PDF of the photos you choose, a page each, in the order you choose them, and Insert Pages › Insert from Photos…, in Organize Pages, adds photos to a document. Tools › Make Default PDF App shows how to have the PDFs you tap in Files open in Folio.
-- **English, French and Chinese.** Folio's menus, buttons and messages follow your device's language: English, French or Simplified Chinese. On the Mac, System Settings › General › Language & Region › Applications sets Folio's language alone, and on iPhone and iPad, Settings › Apps › Folio › Language does.
+- **English, French, Chinese, Turkish and Bosnian.** Folio's menus, buttons and messages follow your device's language: English, French, Simplified Chinese, Turkish or Bosnian. On the Mac, System Settings › General › Language & Region › Applications sets Folio's language alone, and on iPhone and iPad, Settings › Apps › Folio › Language does.
 - **Print**, and open PDFs from Finder. Folio asks once to be your default PDF app, and Home offers it while it isn't.
 
 ## Install
@@ -68,7 +68,7 @@ This builds and signs `build/Folio.app`, then opens it. To keep Folio, copy `bui
 - `./build.sh ios-release` uploads a build to App Store Connect, and the TestFlight workflow does the same from GitHub. [`docs/app-store.md`](docs/app-store.md) has the one-time setup and the listing.
 - `swift icon/icon.swift` draws the icon and the dmg window's background from code, into `icon/Folio.icns`, `icon/logo.png` and `icon/dmg.png`.
 - The design and the build plan are in [`docs/superpowers`](docs/superpowers).
-- [`Localization`](Localization) has Folio's French and Chinese, each line a translation of Folio's English. Words added to Folio need a line in both, and `swift test` checks that the two tables match each other, the code and the numbers and names each line takes.
+- [`Localization`](Localization) has Folio's French, Chinese, Turkish and Bosnian, each line a translation of Folio's English. Words added to Folio need a line in each, and `swift test` checks that the tables match each other, the code and the numbers and names each line takes.
 
 ## Roadmap
 

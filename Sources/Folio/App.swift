@@ -134,6 +134,36 @@ final class AppDelegate: UIResponder, UIApplicationDelegate {
 }
 #endif
 
+#if os(macOS)
+/// The language of Folio's words, chosen in the Folio menu: it overrides the Mac's language for Folio alone, for a Mac whose
+/// first language isn't the one its user wants Folio in.
+enum AppLanguage {
+    static let choices: [(code: String?, name: String)] = [(nil, ""), ("en", "English"), ("tr", "Türkçe"), ("bs", "Bosanski"),
+                                                           ("fr", "Français"), ("zh-Hans", "简体中文")]
+
+    static var current: String? {
+        guard UserDefaults.standard.persistentDomain(forName: Bundle.main.bundleIdentifier ?? "")?["AppleLanguages"] != nil
+        else { return nil }
+        return UserDefaults.standard.stringArray(forKey: "AppleLanguages")?.first
+    }
+
+    @MainActor static func set(_ code: String?) {
+        guard code != current else { return }
+        if let code { UserDefaults.standard.set([code], forKey: "AppleLanguages") } else { UserDefaults.standard.removeObject(forKey: "AppleLanguages") }
+        let alert = NSAlert()
+        alert.messageText = String(localized: "Restart Folio to use the new language.")
+        alert.addButton(withTitle: String(localized: "Restart Now"))
+        alert.addButton(withTitle: String(localized: "Later"))
+        guard alert.runModal() == .alertFirstButtonReturn else { return }
+        let configuration = NSWorkspace.OpenConfiguration()
+        configuration.createsNewApplicationInstance = true
+        NSWorkspace.shared.openApplication(at: Bundle.main.bundleURL, configuration: configuration) { _, _ in
+            DispatchQueue.main.async { NSApp.terminate(nil) }
+        }
+    }
+}
+#endif
+
 struct FolioCommands: Commands {
     #if os(macOS)
     @FocusedValue(\.viewer) private var viewer
@@ -144,6 +174,15 @@ struct FolioCommands: Commands {
 
     var body: some Commands {
         #if os(macOS)
+        CommandGroup(after: .appInfo) {
+            Menu("Language") {
+                ForEach(AppLanguage.choices, id: \.name) { lang in
+                    Toggle(isOn: Binding(get: { AppLanguage.current == lang.code }, set: { _ in AppLanguage.set(lang.code) })) {
+                        if lang.code == nil { Text("System default") } else { Text(verbatim: lang.name) }
+                    }
+                }
+            }
+        }
         // SwiftUI shows Save As only while Option is held, in Duplicate's place.
         CommandGroup(after: .saveItem) {
             Button("Save As…") { NSApp.sendAction(#selector(NSDocument.saveAs(_:)), to: nil, from: nil) }

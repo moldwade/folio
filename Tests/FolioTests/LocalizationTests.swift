@@ -1,6 +1,6 @@
 import XCTest
 
-/// Folio's French and Chinese, in Localization: both have every English the other has, each translation takes the values
+/// Folio's translations, in Localization: each has every English the others have, each translation takes the values
 /// its English takes, and every English is still Folio's own.
 final class LocalizationTests: XCTestCase {
     func testTranslationsMatchTheirEnglish() throws {
@@ -12,11 +12,11 @@ final class LocalizationTests: XCTestCase {
             let data = try Data(contentsOf: root.appendingPathComponent("Localization/\(language).lproj/Localizable.strings"))
             return try XCTUnwrap(PropertyListSerialization.propertyList(from: data, format: nil) as? [String: String])
         }
-        let french = try table("fr"), chinese = try table("zh-Hans")
-        XCTAssertEqual(Set(french.keys), Set(chinese.keys))
+        let french = try table("fr"), others = try ["zh-Hans", "tr", "bs"].map(table)
+        for other in others { XCTAssertEqual(Set(french.keys), Set(other.keys)) }
         let specifier = #/%(?:\d+\$)?(lld|@)/#
         let values = { (text: String) in text.matches(of: specifier).map { String($0.output.1) }.sorted() }
-        for (english, translated) in Array(french) + Array(chinese) {
+        for (english, translated) in Array(french) + others.flatMap { Array($0) } {
             XCTAssertEqual(values(translated), values(english), translated)
         }
         for english in french.keys {

@@ -76,6 +76,8 @@
 "Insert from Photos…" = "Insérer depuis Photos…";
 "Insert Pages" = "Insérer des pages";
 "Keywords" = "Mots-clés";
+"Language" = "Langue";
+"Later" = "Plus tard";
 "Leave Read Mode" = "Quitter le mode lecture";
 "Light" = "Lampe";
 "Line" = "Ligne";
@@ -136,6 +138,8 @@
 "Reduce File Size" = "Réduire la taille du fichier";
 "Reducing file size…" = "Réduction de la taille du fichier…";
 "Remove Password" = "Supprimer le mot de passe";
+"Restart Folio to use the new language." = "Redémarrez Folio pour utiliser la nouvelle langue.";
+"Restart Now" = "Redémarrer";
 "Restrict printing, copying and changes" = "Restreindre l’impression, la copie et les modifications";
 "Rotate" = "Faire pivoter";
 "Rotate Left" = "Faire pivoter à gauche";
@@ -165,6 +169,7 @@
 "Stop Organizing" = "Terminer l’organisation";
 "Strike Through" = "Barrer";
 "Subject" = "Sujet";
+"System default" = "Langue du système";
 "Take Photo" = "Prendre la photo";
 "Tap where it goes, or drag to size it" = "Touchez l’endroit voulu, ou faites glisser pour choisir la taille";
 "Text Box" = "Zone de texte";

@@ -76,6 +76,8 @@
 "Insert from Photos…" = "从照片插入…";
 "Insert Pages" = "插入页面";
 "Keywords" = "关键词";
+"Language" = "语言";
+"Later" = "稍后";
 "Leave Read Mode" = "退出阅读模式";
 "Light" = "手电筒";
 "Line" = "直线";
@@ -136,6 +138,8 @@
 "Reduce File Size" = "减小文件大小";
 "Reducing file size…" = "正在减小文件大小…";
 "Remove Password" = "移除密码";
+"Restart Folio to use the new language." = "重新启动 Folio 以使用新语言。";
+"Restart Now" = "立即重新启动";
 "Restrict printing, copying and changes" = "限制打印、拷贝和更改";
 "Rotate" = "旋转";
 "Rotate Left" = "向左旋转";
@@ -165,6 +169,7 @@
 "Stop Organizing" = "完成整理";
 "Strike Through" = "删除线";
 "Subject" = "主题";
+"System default" = "系统默认";
 "Take Photo" = "拍照";
 "Tap where it goes, or drag to size it" = "轻点要放置的位置，或拖移以调整大小";
 "Text Box" = "文本框";
