@@ -3,7 +3,7 @@ import PDFKit
 import UniformTypeIdentifiers
 
 enum Tool: String, CaseIterable, Identifiable {
-    case select, highlight, underline, strike, note, text, rect, oval, line, arrow, pen, sign, initial, stamp, date, editText, redact
+    case hand, select, highlight, underline, strike, note, text, rect, oval, line, arrow, pen, sign, initial, stamp, date, editText, redact
     case textField, checkBox
 
     var id: Self { self }
@@ -11,6 +11,7 @@ enum Tool: String, CaseIterable, Identifiable {
     /// In the language Folio shows.
     var name: String {
         let english = switch self {
+        case .hand: "Hand"
         case .select: "Select"
         case .highlight: "Highlight"
         case .underline: "Underline"
@@ -36,6 +37,7 @@ enum Tool: String, CaseIterable, Identifiable {
 
     var symbol: String {
         switch self {
+        case .hand: "hand.raised"
         case .select: "cursorarrow"
         case .highlight: "highlighter"
         case .underline: "underline"
@@ -61,6 +63,7 @@ enum Tool: String, CaseIterable, Identifiable {
     /// The key that picks the tool while the page has the keyboard.
     var key: String {
         switch self {
+        case .hand: "m"
         case .select: "v"
         case .highlight: "h"
         case .underline: "u"
@@ -82,6 +85,19 @@ enum Tool: String, CaseIterable, Identifiable {
         case .checkBox: "b"
         }
     }
+
+    /// The tool a document opens with, and goes back to once a mark is placed: on the Mac the hand, which scrolls the page
+    /// by dragging and picks, moves and sizes marks, as Foxit's does; on iOS, where a finger scrolls anyway, Select.
+    static var browsing: Tool {
+        #if os(macOS)
+        .hand
+        #else
+        .select
+        #endif
+    }
+
+    /// Whether the tool picks marks rather than making them.
+    var picks: Bool { self == .select || self == .hand }
 
     init?(key: String) {
         guard let tool = Self.allCases.first(where: { $0.key == key }) else { return nil }
@@ -164,10 +180,10 @@ func coverLine(at point: CGPoint, on page: PDFPage) -> PDFAnnotation? {
     return a
 }
 
-/// An empty text box at `point` in the font, size and colour of the nearest text on the page, so what is typed matches it.
-/// At the height of a line it takes that line's nearest text and puts the words on its baseline; elsewhere it is centred on
-/// the point. A page with no text gets Helvetica 12 in black, a font every PDF app has.
-func textBox(at point: CGPoint, on page: PDFPage) -> PDFAnnotation {
+/// An empty text box at `point` in the chosen style, or with none chosen, in the font, size and colour of the nearest text on
+/// the page, so what is typed matches it. At the height of a line it puts the words on that line's baseline; elsewhere it
+/// is centred on the point. A page with no text gets Helvetica 12 in black, a font every PDF app has.
+func textBox(at point: CGPoint, on page: PDFPage, style: TextStyle? = nil) -> PDFAnnotation {
     // Each run of one font and colour on the page, with its line's bounds.
     var runs: [(bounds: CGRect, line: CGRect, style: [NSAttributedString.Key: Any])] = []
     for line in page.selection(for: page.bounds(for: .mediaBox))?.selectionsByLine() ?? [] {
@@ -183,12 +199,12 @@ func textBox(at point: CGPoint, on page: PDFPage) -> PDFAnnotation {
     let near = (beside.isEmpty ? runs : beside).min { distance($0.bounds) < distance($1.bounds) }
     // PDFKit draws a text box's words 2 pt in from its left and about 3.5 pt down from its top, so a box 2 pt under the line's
     // descent and 3.5 pt over its ascent puts them on the line's baseline.
-    let font = near?.style[.font] as? NSFont ?? NSFont(name: "Helvetica", size: 12)!, height = font.ascender - font.descender + 5.5
+    let font = style?.font ?? near?.style[.font] as? NSFont ?? NSFont(name: "Helvetica", size: 12)!, height = font.ascender - font.descender + 5.5
     let y = beside.isEmpty ? point.y - height / 2 : near!.line.minY - 2
     let box = PDFAnnotation(bounds: CGRect(x: point.x - 2, y: y, width: font.pointSize, height: height), forType: .freeText, withProperties: nil)
     box.font = font
-    box.fontColor = near?.style[.foregroundColor] as? NSColor ?? .black
-    box.color = .clear
+    box.fontColor = style?.color ?? near?.style[.foregroundColor] as? NSColor ?? .black
+    box.color = style?.fill ?? .clear
     box.border = PDFBorder()
     box.border?.lineWidth = 0
     return box
@@ -208,6 +224,19 @@ extension PDFAnnotation {
     /// What the Select tool picks: any annotation but a form field, a link or a note's popup.
     var isMark: Bool { !["Widget", "Link", "Popup"].contains(type ?? "") }
 
+    /// Whether its corner handle sizes it: a text box, a box or oval, or a signature, stamp or picture. A stroke, line or
+    /// highlight would only be clipped.
+    var resizes: Bool { keepsProportions || ["FreeText", "Square", "Circle"].contains(type ?? "") }
+
+    /// Whether sizing it keeps its shape: a signature, stamp or picture, which would look squashed otherwise.
+    var keepsProportions: Bool {
+        #if os(macOS)
+        self is SignatureAnnotation || self is TextStampAnnotation || type == "Stamp"
+        #else
+        self is SignatureAnnotation || type == "Stamp"
+        #endif
+    }
+
     var isComment: Bool {
         !isRedaction && ["Text", "FreeText", "Highlight", "Underline", "StrikeOut", "Square", "Circle", "Line", "Ink"].contains(type ?? "")
     }
@@ -220,19 +249,90 @@ enum Signature: Codable, Equatable {
     case typed(String)
     case image(Data)
 
-    /// The signature the sign tool places, the initials for the initial tool, or the stamp for the stamp tool. It's read on
-    /// every step of a drag, so the last one decoded is kept for as long as it's the one saved.
+    /// The signature the sign tool places, the initials for the initial tool, or the stamp for the stamp tool: the one chosen
+    /// of those saved for it. Setting one saves it beside the others, if it's new, and chooses it; setting nil forgets the
+    /// chosen one. It's read on every step of a drag, so the list last decoded is kept for as long as it's the one saved.
     static subscript(tool: Tool) -> Signature? {
         get {
-            let data = UserDefaults.standard.data(forKey: tool.rawValue)
-            if let read, read.data == data { return read.signature }
-            let signature = data.flatMap { try? JSONDecoder().decode(Signature.self, from: $0) }
-            read = (data, signature)
-            return signature
+            let all = saved(tool)
+            guard !all.isEmpty else { return nil }
+            return all[min(max(chosen(tool), 0), all.count - 1)]
         }
-        set { UserDefaults.standard.set(newValue.flatMap { try? JSONEncoder().encode($0) }, forKey: tool.rawValue) }
+        set {
+            var all = saved(tool)
+            if let newValue {
+                if let at = all.firstIndex(of: newValue) { choose(at, for: tool) } else {
+                    all.append(newValue)
+                    save(all, for: tool)
+                    choose(all.count - 1, for: tool)
+                }
+            } else if !all.isEmpty {
+                all.remove(at: min(max(chosen(tool), 0), all.count - 1))
+                save(all, for: tool)
+                choose(max(all.count - 1, 0), for: tool)
+            }
+        }
     }
-    private static var read: (data: Data?, signature: Signature?)?
+
+    /// Every signature, set of initials or stamp saved for the tool, oldest first. One saved before there could be several
+    /// is the first.
+    static func saved(_ tool: Tool) -> [Signature] {
+        let key = tool.rawValue + ".all"
+        if let old = UserDefaults.standard.data(forKey: tool.rawValue) {
+            UserDefaults.standard.removeObject(forKey: tool.rawValue)
+            // Added to any list there is, never in place of it: an older Folio may have saved one since.
+            if let one = try? JSONDecoder().decode(Signature.self, from: old) {
+                var list = UserDefaults.standard.data(forKey: key).flatMap { try? JSONDecoder().decode([Signature].self, from: $0) } ?? []
+                if !list.contains(one) { list.append(one) }
+                UserDefaults.standard.set(try? JSONEncoder().encode(list), forKey: key)
+            }
+        }
+        let data = UserDefaults.standard.data(forKey: key)
+        if let read = read[tool], read.data == data { return read.list }
+        let list = data.flatMap { try? JSONDecoder().decode([Signature].self, from: $0) } ?? []
+        read[tool] = (data, list)
+        return list
+    }
+    nonisolated(unsafe) private static var read: [Tool: (data: Data?, list: [Signature])] = [:]
+
+    static func save(_ list: [Signature], for tool: Tool) {
+        UserDefaults.standard.set(try? JSONEncoder().encode(list), forKey: tool.rawValue + ".all")
+    }
+
+    /// Which of the saved ones the tool places.
+    static func chosen(_ tool: Tool) -> Int { UserDefaults.standard.integer(forKey: tool.rawValue + ".chosen") }
+    static func choose(_ index: Int, for tool: Tool) { UserDefaults.standard.set(index, forKey: tool.rawValue + ".chosen") }
+
+    /// Forgets one of the saved ones, keeping the chosen one chosen when it's another.
+    static func forget(_ index: Int, for tool: Tool) {
+        var all = saved(tool)
+        guard all.indices.contains(index) else { return }
+        all.remove(at: index)
+        save(all, for: tool)
+        let was = chosen(tool)
+        choose(was > index ? was - 1 : min(was, max(all.count - 1, 0)), for: tool)
+    }
+
+    #if os(macOS)
+    /// A picture of it in black ink, or its own picture's colours, fitted in `size`, for the list to choose from.
+    func image(fitting size: CGSize) -> NSImage {
+        NSImage(size: size, flipped: false) { rect in
+            guard let context = NSGraphicsContext.current?.cgContext else { return false }
+            let inner = rect.insetBy(dx: 4, dy: 4)
+            if case .image(let png) = self, let picture = Signature.picture(png) {
+                let scale = min(inner.width / CGFloat(picture.width), inner.height / CGFloat(picture.height))
+                let w = CGFloat(picture.width) * scale, h = CGFloat(picture.height) * scale
+                context.interpolationQuality = .high
+                context.draw(picture, in: CGRect(x: inner.midX - w / 2, y: inner.midY - h / 2, width: w, height: h))
+            } else {
+                context.addPath(path(in: inner))
+                context.setFillColor(NSColor.black.cgColor)
+                context.fillPath()
+            }
+            return true
+        }
+    }
+    #endif
 
     /// Its outline, to fill, y up: the strokes in ink, or the name's letters with no line finer than a pen's. A picture has
     /// none.
@@ -289,6 +389,7 @@ enum Signature: Codable, Equatable {
         let a = SignatureAnnotation(bounds: path.boundingBoxOfPath, forType: type, withProperties: nil)
         var origin = CGAffineTransform(translationX: -a.bounds.minX, y: -a.bounds.minY)
         a.outline = path.copy(using: &origin)!
+        a.natural = a.bounds.size
         a.color = .black
         return a
     }
@@ -356,12 +457,53 @@ enum Signature: Codable, Equatable {
     }
 }
 
+/// How big a signature, initials or a stamp goes on the page when a click places it: small, medium or large, as chosen
+/// in the list of saved ones, and the sizes a selected one can be set to.
+enum MarkSize: Int, CaseIterable, Identifiable {
+    case small, medium, large
+
+    var id: Self { self }
+
+    var name: String {
+        switch self {
+        case .small: String(localized: "Small")
+        case .medium: String(localized: "Medium")
+        case .large: String(localized: "Large")
+        }
+    }
+
+    static var current: MarkSize {
+        get { MarkSize(rawValue: UserDefaults.standard.object(forKey: "markSize") as? Int ?? 1) ?? .medium }
+        set { UserDefaults.standard.set(newValue.rawValue, forKey: "markSize") }
+    }
+
+    /// The box it's fitted into: a stamp about the size of a company's rubber stamp at Medium, 120 points a side; a
+    /// signature 180 by 45 points; initials half that.
+    func box(for tool: Tool) -> CGSize {
+        let scale: CGFloat = [0.65, 1, 1.45][rawValue]
+        switch tool {
+        case .stamp: return CGSize(width: 120 * scale, height: 120 * scale)
+        case .initial: return CGSize(width: 90 * scale, height: 36 * scale)
+        default: return CGSize(width: 180 * scale, height: 45 * scale)
+        }
+    }
+
+    /// The box for a mark already on a page, by what it is: a picture or stamp is a stamp, a word stamp keeps its own
+    /// proportions, anything else a signature.
+    static func tool(for mark: PDFAnnotation) -> Tool {
+        if let mark = mark as? SignatureAnnotation, mark.picture != nil { return .stamp }
+        return mark is SignatureAnnotation ? .sign : .stamp
+    }
+}
+
 /// A placed signature: its outline, from the bounds' corner, filled in its colour, or its picture filling the bounds. PDFKit
 /// writes this drawing into the file as the annotation's appearance, so it is the same picture at any size and zoom, here
 /// and in other apps.
 final class SignatureAnnotation: PDFAnnotation {
     var outline: CGPath = CGMutablePath()
     var picture: CGImage?
+    /// The size the outline was made for: sized since, it's stretched to the bounds.
+    var natural = CGSize.zero
 
     override func draw(with box: PDFDisplayBox, in context: CGContext) {
         context.saveGState()
@@ -370,6 +512,7 @@ final class SignatureAnnotation: PDFAnnotation {
             context.draw(picture, in: bounds)
         } else {
             context.translateBy(x: bounds.minX, y: bounds.minY)
+            if natural.width > 0, natural.height > 0 { context.scaleBy(x: bounds.width / natural.width, y: bounds.height / natural.height) }
             context.addPath(outline)
             context.setFillColor(color.cgColor)
             context.fillPath()
@@ -382,6 +525,7 @@ final class SignatureAnnotation: PDFAnnotation {
         let copy = super.copy(with: zone) as! SignatureAnnotation
         copy.outline = outline
         copy.picture = picture
+        copy.natural = natural
         return copy
     }
 }

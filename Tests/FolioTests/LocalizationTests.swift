@@ -14,8 +14,14 @@ final class LocalizationTests: XCTestCase {
         }
         let french = try table("fr"), others = try ["zh-Hans", "tr", "bs"].map(table)
         for other in others { XCTAssertEqual(Set(french.keys), Set(other.keys)) }
-        let specifier = #/%(?:\d+\$)?(lld|@)/#
-        let values = { (text: String) in text.matches(of: specifier).map { String($0.output.1) }.sorted() }
+        let specifier = #/%(?:(\d+)\$)?(lld|@)/#
+        // The values in the order they're taken: by their numbers where a translation numbers them, as one that puts them in
+        // another order must, else as they come. A number taken as text, or text as a number, crashes Folio.
+        let values = { (text: String) -> [String] in
+            let found = text.matches(of: specifier).map { (place: $0.output.1.flatMap { Int($0) }, kind: String($0.output.2)) }
+            guard found.contains(where: { $0.place != nil }) else { return found.map(\.kind) }
+            return found.sorted { ($0.place ?? 0) < ($1.place ?? 0) }.map(\.kind)
+        }
         for (english, translated) in Array(french) + others.flatMap { Array($0) } {
             XCTAssertEqual(values(translated), values(english), translated)
         }

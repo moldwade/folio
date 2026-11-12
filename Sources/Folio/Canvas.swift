@@ -20,6 +20,8 @@ final class Canvas: PDFView {
             #if os(macOS)
             // So the Fonts panel shows, and changes, the selected text box's font.
             if selected?.type == "FreeText", let font = selected?.font { NSFontManager.shared.setSelectedFont(font, isMultiple: false) }
+            // The format bar shows the selected text box's style, to change.
+            if let selected, selected.type == "FreeText" { viewer.textStyle = TextStyle(of: selected) }
             #endif
         }
     }
@@ -45,6 +47,33 @@ final class Canvas: PDFView {
     private(set) var start: (point: CGPoint, page: PDFPage)?
     /// The selected annotation's bounds when the drag began.
     private var origin: CGRect?
+    /// Whether the drag sizes the selected mark, by the handle at its lower right corner, rather than moving it.
+    private var resizing = false
+    #if os(macOS)
+    /// Where a drag with the hand began, in the window, and where the pages were scrolled to then.
+    private var pan: (from: CGPoint, origin: CGPoint)?
+    /// The signature or stamp the tool places, shown faintly under the pointer before the click places it.
+    private let ghost: NSImageView = {
+        let view = Ghost()
+        view.imageScaling = .scaleProportionallyUpOrDown
+        view.alphaValue = 0.55
+        view.wantsLayer = true
+        view.layer?.borderColor = NSColor.controlAccentColor.cgColor
+        view.layer?.borderWidth = 1
+        return view
+    }()
+    /// The signature the ghost shows, and the tool and size it was drawn for.
+    private var ghostOf: (signature: Signature, tool: Tool, size: MarkSize)?
+    /// The square at the selected mark's lower right corner that sizes it.
+    private let handle: NSView = {
+        let view = NSView(frame: CGRect(x: 0, y: 0, width: 9, height: 9))
+        view.wantsLayer = true
+        view.layer?.backgroundColor = NSColor.controlAccentColor.cgColor
+        view.layer?.borderColor = NSColor.white.cgColor
+        view.layer?.borderWidth = 1
+        return view
+    }()
+    #endif
     /// The pen's points so far, and what the drag would add, shown without undo until the mouse goes up.
     private var stroke: [CGPoint] = []
     private var draft: PDFAnnotation?
@@ -181,7 +210,13 @@ final class Canvas: PDFView {
         start = (point, page)
         stroke = [point]
         switch viewer.tool {
-        case .select:
+        case .select, .hand:
+            // The handle at the selected mark's lower right corner sizes it.
+            if let selected, selected.page == page, onHandle(point) {
+                origin = selected.bounds
+                resizing = true
+                return true
+            }
             let hit = page.annotation(at: point)
             #if os(iOS)
             let picks = viewer.markingUp   // reading, marks stay where they are: Markup moves them
@@ -204,16 +239,16 @@ final class Canvas: PDFView {
             viewer.doc.add(note, to: page, name: "Add Note")
             viewer.show(.comments)
             viewer.focusNote = note
-            viewer.tool = .select
+            viewer.tool = Tool.browsing
             selected = note
         case .text:
             // Placing is one-shot, so the press that ends the typing selects rather than starting another box.
-            viewer.tool = .select
-            edit(textBox(at: point, on: page), on: page, adding: "Add Text")
+            viewer.tool = Tool.browsing
+            edit(textBox(at: point, on: page, style: viewer.textStyle), on: page, adding: "Add Text")
         case .date:
             // Today's date as the Text Box tool would type it, then selected, to drag into place.
-            viewer.tool = .select
-            let date = textBox(at: point, on: page), today = Date.now.formatted(date: .numeric, time: .omitted)
+            viewer.tool = Tool.browsing
+            let date = textBox(at: point, on: page, style: viewer.textStyle), today = Date.now.formatted(date: .numeric, time: .omitted)
             (date.contents, date.bounds) = (today, fit(date.bounds, around: today, in: date.font ?? .systemFont(ofSize: 12)))
             viewer.doc.add(date, to: page, name: "Add Date")
             selected = date
@@ -240,9 +275,10 @@ final class Canvas: PDFView {
     func extend(to point: CGPoint) -> Bool {
         guard let (from, page) = start else { return false }
         switch viewer.tool {
-        case .select:
+        case .select, .hand:
             guard let selected, let origin else { return false }
-            selected.bounds = origin.offsetBy(dx: point.x - from.x, dy: point.y - from.y)
+            selected.bounds = resizing ? resized(origin, of: selected, by: CGVector(dx: point.x - from.x, dy: point.y - from.y))
+                : origin.offsetBy(dx: point.x - from.x, dy: point.y - from.y)
             outlineSelection()
         case .rect, .oval, .line, .arrow, .redact, .pen, .sign, .initial, .stamp, .textField, .checkBox:
             stroke.append(point)
@@ -266,13 +302,13 @@ final class Canvas: PDFView {
     /// often slips: 180 by 45 points, or 120 a side for a stamp, about the size of a company's rubber stamp. It's then
     /// selected, to move or delete straight away.
     func end(at point: CGPoint) {
-        defer { (start, origin, draft) = (nil, nil, nil) }
+        defer { (start, origin, draft, resizing) = (nil, nil, nil, false) }
         guard let (from, page) = start else { return }
         switch viewer.tool {
-        case .select:
+        case .select, .hand:
             guard let selected, let origin, selected.bounds != origin else { return }
             let moved = selected.bounds
-            viewer.doc.change("Move", do: { selected.bounds = moved }, undo: { selected.bounds = origin })
+            viewer.doc.change(resizing ? "Resize" : "Move", do: { selected.bounds = moved }, undo: { selected.bounds = origin })
         case .rect, .oval, .line, .arrow, .redact, .pen:
             guard let draft else { return }
             page.removeAnnotation(draft)
@@ -283,20 +319,49 @@ final class Canvas: PDFView {
             draft.map(page.removeAnnotation)
             let field = formField(viewer.tool, from: from, to: point, on: page)
             viewer.doc.add(field, to: page, name: "Add Form Field")
-            viewer.tool = .select
+            viewer.tool = Tool.browsing
         case .sign, .initial, .stamp:
             guard let signature = Signature[viewer.tool] else { return }
             draft.map(page.removeAnnotation)
             let sized = hypot(point.x - from.x, point.y - from.y) < 20 ? nil : draft?.bounds
-            let usual = viewer.tool == .stamp ? CGSize(width: 120, height: 120) : CGSize(width: 180, height: 45)
+            let usual = MarkSize.current.box(for: viewer.tool)
             let placed = signature.annotation(in: sized ?? CGRect(x: point.x - usual.width / 2, y: point.y - usual.height / 2,
                                                                          width: usual.width, height: usual.height))
             viewer.doc.add(placed, to: page, name: viewer.tool.name)
-            viewer.tool = .select
+            viewer.tool = Tool.browsing
             selected = placed
         default:
             break
         }
+    }
+
+    /// Whether `point`, in the selected mark's page's space, is on the handle at its lower right corner: within 8 points of
+    /// it on the screen, whatever the zoom.
+    func onHandle(_ point: CGPoint) -> Bool {
+        guard let selected, selected.resizes else { return false }
+        let reach = 8 / max(scaleFactor, 0.1)
+        return abs(point.x - selected.bounds.maxX) <= reach && abs(point.y - selected.bounds.minY) <= reach
+    }
+
+    /// `bounds` with its lower right corner dragged by `by`, the upper left staying put. A signature, stamp or picture keeps
+    /// its proportions; a text box or a shape takes any. Never under 8 points a side.
+    func resized(_ bounds: CGRect, of mark: PDFAnnotation, by: CGVector) -> CGRect {
+        var width = max(bounds.width + by.dx, 8), height = max(bounds.height - by.dy, 8)
+        if mark.keepsProportions, bounds.width > 0, bounds.height > 0 {
+            let scale = max(width / bounds.width, height / bounds.height, 8 / min(bounds.width, bounds.height))
+            (width, height) = (bounds.width * scale, bounds.height * scale)
+        }
+        return CGRect(x: bounds.minX, y: bounds.maxY - height, width: width, height: height)
+    }
+
+    /// Sets the selected signature, stamp or picture to a size, about its middle, as one change.
+    func setSize(_ size: MarkSize) {
+        guard let mark = selected, mark.keepsProportions, mark.bounds.width > 0, mark.bounds.height > 0 else { return }
+        let box = size.box(for: MarkSize.tool(for: mark)), old = mark.bounds
+        let scale = min(box.width / old.width, box.height / old.height)
+        let new = CGRect(x: old.midX - old.width * scale / 2, y: old.midY - old.height * scale / 2, width: old.width * scale, height: old.height * scale)
+        viewer.doc.change("Resize", do: { mark.bounds = new }, undo: { mark.bounds = old })
+        outlineSelection()
     }
 
     /// One highlight, underline or strike-through for each line of the selection, in the tool's colour, as one change.
@@ -336,20 +401,47 @@ final class Canvas: PDFView {
         finishEditing()
         commitFields()
         start = nil
+        hideGhost()
         let tool = viewer.tool, point = convert(event.locationInWindow, from: nil)
-        guard let page = page(for: point, nearest: false), begin(at: convert(point, to: page), on: page) else {
+        let page = page(for: point, nearest: false), at = page.map { convert(point, to: $0) }
+        // The hand drags the pages along, unless it lands on a mark or its handle, a form field or a link.
+        if tool == .hand, let scroll = documentView?.enclosingScrollView {
+            let hit = page.flatMap { page in at.flatMap { page.annotation(at: $0) } }
+            let onMark = hit?.isMark == true && viewer.doc.canEdit
+            let onSelected = page != nil && selected?.page == page && at.map(onHandle) == true && viewer.doc.canEdit
+            if !onMark, !onSelected, hit?.type != "Widget", hit?.type != "Link" {
+                selected = nil
+                pan = (event.locationInWindow, scroll.contentView.bounds.origin)
+                NSCursor.closedHand.set()
+                return
+            }
+        }
+        guard let page, let at, begin(at: at, on: page) else {
             super.mouseDown(with: event)
             return commitFields()
         }
-        if event.clickCount == 2, tool == .select, let selected, selected.type == "FreeText" { edit(selected, on: page) }
+        if event.clickCount == 2, tool.picks, let selected, selected.type == "FreeText" { edit(selected, on: page) }
     }
 
     override func mouseDragged(with event: NSEvent) {
+        if let pan, let scroll = documentView?.enclosingScrollView, let documentView {
+            let zoom = max(scroll.magnification, 0.01)
+            let dx = (event.locationInWindow.x - pan.from.x) / zoom, dy = (event.locationInWindow.y - pan.from.y) / zoom
+            let to = CGPoint(x: pan.origin.x - dx, y: documentView.isFlipped ? pan.origin.y + dy : pan.origin.y - dy)
+            scroll.contentView.scroll(to: scroll.contentView.constrainBoundsRect(CGRect(origin: to, size: scroll.contentView.bounds.size)).origin)
+            scroll.reflectScrolledClipView(scroll.contentView)
+            return
+        }
         if let page = start?.page, extend(to: convert(convert(event.locationInWindow, from: nil), to: page)) { return }
         super.mouseDragged(with: event)
     }
 
     override func mouseUp(with event: NSEvent) {
+        if pan != nil {
+            pan = nil
+            NSCursor.openHand.set()
+            return
+        }
         guard let page = start?.page else { return super.mouseUp(with: event) }
         if [.highlight, .underline, .strike].contains(viewer.tool) {
             super.mouseUp(with: event)
@@ -357,11 +449,60 @@ final class Canvas: PDFView {
                 markUp(selection)
                 clearSelection()
             }
-        } else if viewer.tool == .select, selected == nil || origin == nil {
+        } else if viewer.tool.picks, selected == nil || origin == nil {
             super.mouseUp(with: event)
             commitFields()
         }
         end(at: convert(convert(event.locationInWindow, from: nil), to: page))
+    }
+    #endif
+
+    #if os(macOS)
+    /// The pointer says what a click does: the hand an open hand, a handle a corner to drag, and a signature or stamp tool
+    /// shows what it places, faintly, where it would go.
+    override func mouseMoved(with event: NSEvent) {
+        let point = convert(event.locationInWindow, from: nil)
+        let page = page(for: point, nearest: false), at = page.map { convert(point, to: $0) }
+        if [.sign, .initial, .stamp].contains(viewer.tool), viewer.isIdle, let page, let at, showGhost(at: at, on: page) {
+            NSCursor.crosshair.set()
+            return
+        }
+        hideGhost()
+        if viewer.tool.picks, let page, let at, selected?.page == page, onHandle(at) {
+            NSCursor.frameResize(position: .bottomRight, directions: .all).set()
+            return
+        }
+        if viewer.tool == .hand, pan == nil {
+            let hit = page.flatMap { page in at.flatMap { page.annotation(at: $0) } }
+            if hit?.type == "Widget" || hit?.type == "Link" { return super.mouseMoved(with: event) }
+            (hit?.isMark == true ? NSCursor.pointingHand : NSCursor.openHand).set()
+            return
+        }
+        super.mouseMoved(with: event)
+    }
+
+    override func mouseExited(with event: NSEvent) {
+        hideGhost()
+        super.mouseExited(with: event)
+    }
+
+    /// Shows the tool's signature or stamp at the size a click gives it, centred on `point`. False when none is saved.
+    @discardableResult
+    private func showGhost(at point: CGPoint, on page: PDFPage) -> Bool {
+        guard let signature = Signature[viewer.tool], let documentView else { return false }
+        let size = MarkSize.current, box = size.box(for: viewer.tool)
+        if ghostOf?.signature != signature || ghostOf?.tool != viewer.tool || ghostOf?.size != size {
+            ghost.image = signature.image(fitting: CGSize(width: box.width * 3, height: box.height * 3))
+            ghostOf = (signature, viewer.tool, size)
+        }
+        let rect = CGRect(x: point.x - box.width / 2, y: point.y - box.height / 2, width: box.width, height: box.height)
+        ghost.frame = convert(convert(rect, from: page), to: documentView)
+        if ghost.superview !== documentView { documentView.addSubview(ghost) }
+        return true
+    }
+
+    func hideGhost() {
+        if ghost.superview != nil { ghost.removeFromSuperview() }
     }
     #endif
 
@@ -384,9 +525,9 @@ final class Canvas: PDFView {
             viewer.doc.change("Move", do: { selected.bounds = to }, undo: { selected.bounds = from })
         } else if selected != nil, [51, 117].contains(event.keyCode) {
             deleteMark()
-        } else if event.keyCode == 53, selected != nil || viewer.tool != .select {
+        } else if event.keyCode == 53, selected != nil || viewer.tool != Tool.browsing {
             selected = nil
-            viewer.tool = .select
+            viewer.tool = Tool.browsing
         } else if let tool = event.charactersIgnoringModifiers.flatMap({ Tool(key: $0.lowercased()) }) {
             viewer.tool = tool
         } else {
@@ -401,7 +542,7 @@ final class Canvas: PDFView {
         guard viewer.doc.canEdit, let page = page(for: point, nearest: false), let mark = page.annotation(at: convert(point, to: page)),
               mark.isMark else { return menu }
         viewer.settle()
-        viewer.tool = .select
+        viewer.tool = Tool.browsing
         selected = mark
         // Its own target: sent down the responder chain, Delete would go to a text field that has the keys.
         let items = [NSMenuItem(title: String(localized: "Delete"), action: #selector(deleteMark), keyEquivalent: "")]
@@ -423,8 +564,19 @@ final class Canvas: PDFView {
 
     /// Puts the outline around the selected annotation, or takes it away when there is none on a page.
     @objc func outlineSelection() {
-        guard let selected, let page = selected.page, let documentView else { return outline.removeFromSuperview() }
+        guard let selected, let page = selected.page, let documentView else {
+            #if os(macOS)
+            handle.removeFromSuperview()
+            #endif
+            return outline.removeFromSuperview()
+        }
         outline.frame = convert(convert(selected.bounds, from: page), to: documentView).insetBy(dx: -3, dy: -3)
+        #if os(macOS)
+        // The handle, at the lower right corner of the mark itself, on the screen whichever way the pages' view runs.
+        let corner = convert(convert(CGPoint(x: selected.bounds.maxX, y: selected.bounds.minY), from: page), to: documentView)
+        handle.frame = CGRect(x: corner.x - 4.5, y: corner.y - 4.5, width: 9, height: 9)
+        if !selected.resizes { handle.removeFromSuperview() } else if handle.superview !== documentView { documentView.addSubview(handle) }
+        #endif
         #if os(iOS)
         // The page view zooms what's in it, so the frame is drawn thinner by the same amount, to stay one width.
         outline.layer.borderWidth = 1.5 / scaleFactor
@@ -444,7 +596,6 @@ final class Canvas: PDFView {
         field.wantsLayer = true
         field.layer?.borderColor = NSColor.controlAccentColor.cgColor
         field.layer?.borderWidth = 1
-        field.font = font.withSize(font.pointSize * scaleFactor)
         #else
         let field = UITextField()
         field.text = box.contents
@@ -461,7 +612,14 @@ final class Canvas: PDFView {
         field.frame = convert(convert(box.bounds, from: page), to: documentView)
         documentView.addSubview(field)
         #if os(macOS)
+        // The words at the size they'll have on the page as it shows. The pages' view may already be magnified, so the zoom
+        // is how much bigger the box is in it than on the page, not the page view's scale: that was counted twice.
+        let zoom = field.frame.height / max(box.bounds.height, 1)
+        field.font = font.withSize(font.pointSize * zoom)
+        field.cell?.wraps = false
+        field.cell?.isScrollable = true
         field.frame.size.width = max(field.frame.width, field.cell?.cellSize.width ?? 0)
+        field.frame.size.height = max(field.frame.height, field.cell?.cellSize.height ?? 0)
         window?.makeFirstResponder(field)
         editing = window?.windowController?.document as? NSDocument
         editing?.objectDidBeginEditing(self)
@@ -511,7 +669,7 @@ final class Canvas: PDFView {
         field.removeFromSuperview()
         let oldText = box.contents, oldBounds = box.bounds
         let bounds = fit(oldBounds, around: text, in: box.font ?? .systemFont(ofSize: 14))
-        defer { if box.page != nil, viewer.tool == .select { selected = box } }
+        defer { if box.page != nil, viewer.tool.picks { selected = box } }
         if let adding {
             guard text != oldText ?? "" else { return }
             (box.contents, box.bounds) = (text, bounds)
@@ -572,5 +730,12 @@ extension Canvas: NSEditor {
         typealias DidCommit = @convention(c) (NSObject, Selector, AnyObject, ObjCBool, UnsafeMutableRawPointer?) -> Void
         unsafeBitCast(delegate.method(for: selector), to: DidCommit.self)(delegate, selector, self, true, contextInfo)
     }
+}
+#endif
+
+#if os(macOS)
+/// The preview under a signature or stamp tool's pointer: clicks go through it, to the page, to place the mark.
+private final class Ghost: NSImageView {
+    override func hitTest(_ point: NSPoint) -> NSView? { nil }
 }
 #endif

@@ -8,7 +8,8 @@ struct Ribbon: View {
     @Bindable var viewer: Viewer
     let name: String
     let find: () -> Void
-    @AppStorage("ribbonTab") private var tab = RibbonTab.home
+    /// Each window opens on Home, whatever tab the last one was left on.
+    @ViewState private var tab = RibbonTab.home
     @Environment(\.openWindow) private var openWindow
 
     var body: some View {
@@ -49,10 +50,16 @@ struct Ribbon: View {
         switch tab {
         case .home:
             RibbonGroup("Tools", tint: .blue) {
+                tool(.hand)
                 tool(.select)
                 tool(.highlight)
                 tool(.text)
                 tool(.note)
+            }
+            RibbonGroup("Pages", tint: .indigo) {
+                big("Insert Blank Page", "doc.badge.plus") { viewer.insert([FolioDocument.blankPage(like: viewer.targetPages.last)]) }
+                    .help("Insert Blank Page (⇧⌘N)")
+                    .disabled(!idle)
             }
             RibbonGroup("Zoom", tint: .teal) {
                 big("Zoom In", "plus.magnifyingglass") { viewer.canvas.zoomIn(nil) }
@@ -71,8 +78,8 @@ struct Ribbon: View {
                 big("Print…", "printer") { viewer.canvas.print(with: .shared, autoRotate: true, pageScaling: .pageScaleToFit) }.disabled(locked)
             }
             RibbonGroup("Sign", tint: .purple) {
-                tool(.sign)
-                tool(.stamp)
+                SignatureButton(viewer: viewer, tool: .sign)
+                SignatureButton(viewer: viewer, tool: .stamp)
                 stampMenu
             }
         case .comment:
@@ -139,16 +146,17 @@ struct Ribbon: View {
                 big("Crop Pages…", "crop") { viewer.sheet = .crop }.disabled(!idle)
             }
             RibbonGroup("Files", tint: .green) {
-                big("Combine Files…", "doc.on.doc") { Combine.choose() }
+                big("Combine Files…", "doc.on.doc") { viewer.combineFiles() }.disabled(!idle)
             }
         case .convert:
             RibbonGroup("Export", tint: .blue) {
                 big("To Word", "doc.richtext") { Export.run(.word, viewer: viewer, name: name) }.disabled(locked)
+                big("To Excel", "tablecells") { Export.run(.excel, viewer: viewer, name: name) }.disabled(locked)
                 big("To Text", "doc.plaintext") { Export.run(.text, viewer: viewer, name: name) }.disabled(locked)
                 big("To Pictures", "photo.on.rectangle") { Export.run(.images, viewer: viewer, name: name) }.disabled(locked)
             }
             RibbonGroup("Create", tint: .green) {
-                big("Combine Files…", "doc.on.doc") { Combine.choose() }
+                big("Combine Files…", "doc.on.doc") { viewer.combineFiles() }.disabled(!idle)
                 big("Insert from File…", "folder.badge.plus") { viewer.choosingPages = true }.disabled(!idle)
             }
             RibbonGroup("Share", tint: .orange) {
@@ -162,12 +170,12 @@ struct Ribbon: View {
             }
         case .sign:
             RibbonGroup("Sign", tint: .purple) {
-                tool(.sign)
-                tool(.initial)
+                SignatureButton(viewer: viewer, tool: .sign)
+                SignatureButton(viewer: viewer, tool: .initial)
                 tool(.date)
             }
             RibbonGroup("Stamp", tint: .green) {
-                tool(.stamp)
+                SignatureButton(viewer: viewer, tool: .stamp)
                 stampMenu
             }
             RibbonGroup("Fill", tint: .blue) {
@@ -182,9 +190,9 @@ struct Ribbon: View {
                 big("Sign with Certificate…", "checkmark.seal.text.page") { viewer.sheet = .digitalSignature }.disabled(!idle || !full)
             }
             RibbonGroup("Manage", tint: .gray) {
-                big("Edit Signature…", "signature") { viewer.sheet = .signature(.sign) }
-                big("Edit Initials…", "character.cursor.ibeam") { viewer.sheet = .signature(.initial) }
-                big("Edit Stamp…", "seal") { viewer.sheet = .signature(.stamp) }
+                big("New Signature…", "signature") { viewer.sheet = .signature(.sign) }
+                big("New Initials…", "character.cursor.ibeam") { viewer.sheet = .signature(.initial) }
+                big("New Stamp…", "seal") { viewer.sheet = .signature(.stamp) }
             }
         case .protect:
             RibbonGroup("Secure", tint: .red) {

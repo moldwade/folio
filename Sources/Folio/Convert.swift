@@ -40,6 +40,7 @@ enum TextStamp: String, CaseIterable, Identifiable {
         let stamp = TextStampAnnotation(bounds: CGRect(x: point.x - width / 2, y: point.y - height / 2, width: width, height: height),
                                         forType: .stamp, withProperties: nil)
         stamp.words = words
+        stamp.natural = stamp.bounds.size
         stamp.date = dated ? Date.now.formatted(date: .numeric, time: .omitted) : nil
         stamp.color = color
         stamp.contents = [words, stamp.date].compactMap { $0 }.joined(separator: " ")
@@ -53,11 +54,16 @@ enum TextStamp: String, CaseIterable, Identifiable {
 final class TextStampAnnotation: PDFAnnotation {
     var words = ""
     var date: String?
+    /// The size it was made at: sized since, it's drawn stretched to the bounds.
+    var natural = CGSize.zero
 
     override func draw(with box: PDFDisplayBox, in context: CGContext) {
         let ink = color.withAlphaComponent(0.85)
+        let size = natural.width > 0 && natural.height > 0 ? natural : bounds.size
         context.saveGState()
-        let frame = bounds.insetBy(dx: 2, dy: 2)
+        context.translateBy(x: bounds.minX, y: bounds.minY)
+        context.scaleBy(x: bounds.width / size.width, y: bounds.height / size.height)
+        let frame = CGRect(origin: .zero, size: size).insetBy(dx: 2, dy: 2)
         context.setStrokeColor(ink.cgColor)
         context.setLineWidth(2.5)
         context.addPath(CGPath(roundedRect: frame, cornerWidth: 6, cornerHeight: 6, transform: nil))
@@ -66,7 +72,7 @@ final class TextStampAnnotation: PDFAnnotation {
         context.addPath(CGPath(roundedRect: frame.insetBy(dx: 3.5, dy: 3.5), cornerWidth: 4, cornerHeight: 4, transform: nil))
         context.strokePath()
         let big = NSFont.boldSystemFont(ofSize: 20), small = NSFont.boldSystemFont(ofSize: 10)
-        let mid = CGPoint(x: bounds.midX, y: bounds.midY)
+        let mid = CGPoint(x: size.width / 2, y: size.height / 2)
         PageMarks.drawText(words, in: context, center: CGPoint(x: mid.x, y: date == nil ? mid.y : mid.y + 7),
                            attributes: [.font: big, .foregroundColor: ink])
         if let date {
@@ -79,6 +85,7 @@ final class TextStampAnnotation: PDFAnnotation {
         let copy = super.copy(with: zone) as! TextStampAnnotation
         copy.words = words
         copy.date = date
+        copy.natural = natural
         return copy
     }
 }
@@ -91,7 +98,7 @@ extension Viewer {
         let box = page.bounds(for: .cropBox)
         let mark = stamp.annotation(at: CGPoint(x: box.midX, y: box.midY))
         doc.add(mark, to: page, name: "Stamp")
-        tool = .select
+        tool = Tool.browsing
         canvas.selected = mark
     }
 }
@@ -121,7 +128,7 @@ extension Viewer {
                                        forType: .stamp, withProperties: nil)
         mark.picture = picture
         doc.add(mark, to: page, name: "Add Picture")
-        tool = .select
+        tool = Tool.browsing
         canvas.selected = mark
     }
 }
@@ -130,7 +137,18 @@ extension Viewer {
 
 /// Saving the document as something else: a Word file or plain text of its words, or a picture of each page.
 enum Export {
-    enum Kind { case word, text, images }
+    enum Kind { case word, text, images, excel }
+
+    /// The page a Word file is laid out on: the size of the PDF's first page as it shows, turned or not, so a landscape PDF
+    /// makes a landscape Word file.
+    static func paper(of pdf: PDFDocument) -> CGSize {
+        guard let page = pdf.page(at: 0) else { return CGSize(width: 595, height: 842) }
+        let box = page.bounds(for: .cropBox).size
+        return page.rotation % 180 == 0 ? box : CGSize(width: box.height, height: box.width)
+    }
+
+    /// The width between a Word page's margins of an inch, less a little for fonts wider than the PDF's.
+    static func lineWidth(on paper: CGSize) -> CGFloat { max(paper.width - 144 - 20, 200) }
 
     /// The document's words, page after page, a page break between them.
     /// The document's words, page after page, laid out as on the page: each line indented to where it starts, the gaps
@@ -148,7 +166,7 @@ enum Export {
         for i in 0..<source.pageCount {
             guard let page = source.page(at: i) else { continue }
             if i > 0 { all.append(NSAttributedString(string: "\u{000C}")) }
-            all.append(laidOut(page, pictures: &pictures))
+            all.append(laidOut(page, pictures: &pictures, width: lineWidth(on: paper(of: source))))
         }
         // A PDF's fonts are often embedded subsets Word doesn't have, which it shows as Times: Arial instead, at each run's
         // size, bold and italic kept.
@@ -166,7 +184,7 @@ enum Export {
     }
 
     /// One page's lines as paragraphs placed as they are on it, or its plain words when PDFKit finds no lines.
-    static func laidOut(_ page: PDFPage, pictures found: inout [NSImage]) -> NSAttributedString {
+    static func laidOut(_ page: PDFPage, pictures found: inout [NSImage], width: CGFloat = 430) -> NSAttributedString {
         let box = page.bounds(for: .cropBox)
         let pieces = (page.selection(for: box)?.selectionsByLine() ?? []).compactMap { line -> (CGRect, NSAttributedString)? in
             let bounds = line.bounds(for: page)
@@ -199,7 +217,7 @@ enum Export {
         // Word's page has 6.5 inches between its margins: wider lines are drawn in closer, keeping their proportions, with room
         // to spare for fonts a little wider than the PDF's.
         let right = (pieces + pictures).map(\.0.maxX).max() ?? box.maxX
-        let fit = min(1, 430 / max(right - left, 1))
+        let fit = min(1, width / max(right - left, 1))
         let out = NSMutableAttributedString()
         var above = box.maxY
         for row in rows {
@@ -249,16 +267,26 @@ enum Export {
             return
         }
         let panel = NSSavePanel()
-        panel.allowedContentTypes = [kind == .word ? UTType(filenameExtension: "docx")! : .plainText]
+        panel.allowedContentTypes = [kind == .word ? UTType(filenameExtension: "docx")! : kind == .excel ? UTType(filenameExtension: "xlsx")! : .plainText]
         panel.nameFieldStringValue = name
         guard panel.runModal() == .OK, let url = panel.url else { return }
         do {
+            if kind == .excel {
+                let sheets = Tables.sheets(of: pdf)
+                guard sheets.contains(where: { !$0.isEmpty }) else {
+                    viewer.message = String(localized: "Found no text to put in a spreadsheet. Recognize Text first for a scan.")
+                    return
+                }
+                try Xlsx.data(sheets).write(to: url)
+                viewer.message = String(localized: "Saved \(url.lastPathComponent)")
+                return
+            }
             var pictures: [NSImage] = []
             let text = words(of: pdf, pictures: &pictures)
             if kind == .word {
                 let data = try text.data(from: NSRange(location: 0, length: text.length),
                                          documentAttributes: [.documentType: NSAttributedString.DocumentType.officeOpenXML])
-                try Docx.withPictures(data, pictures).write(to: url)
+                try Docx.withPictures(data, pictures, paper: paper(of: pdf)).write(to: url)
             } else {
                 try text.string.replacingOccurrences(of: "\u{000C}", with: "\n\n").write(to: url, atomically: true, encoding: .utf8)
             }
@@ -555,8 +583,8 @@ enum PagePictures {
 enum Docx {
     static func marker(_ n: Int) -> String { "FOLIOPICTURE\(n)X" }
 
-    static func withPictures(_ docx: Data, _ pictures: [NSImage]) throws -> Data {
-        guard !pictures.isEmpty else { return docx }
+    static func withPictures(_ docx: Data, _ pictures: [NSImage], paper: CGSize? = nil) throws -> Data {
+        guard !pictures.isEmpty || paper != nil else { return docx }
         let folder = FileManager.default.temporaryDirectory.appendingPathComponent("folio-docx-\(UUID())")
         defer { try? FileManager.default.removeItem(at: folder) }
         let unpacked = folder.appendingPathComponent("x"), file = folder.appendingPathComponent("in.docx")
@@ -578,6 +606,7 @@ enum Docx {
         where !document.contains("xmlns:\(ns)=") {
             document = document.replacingOccurrences(of: "<w:document ", with: "<w:document xmlns:\(ns)=\"\(uri)\" ")
         }
+        if let paper { document = sized(document, to: paper) }
         for (n, picture) in pictures.enumerated() {
             guard let tiff = picture.tiffRepresentation, let png = NSBitmapImageRep(data: tiff)?.representation(using: .png, properties: [:]) else { continue }
             try png.write(to: unpacked.appendingPathComponent("word/media/folio\(n).png"))
@@ -595,7 +624,26 @@ enum Docx {
         return try Data(contentsOf: out)
     }
 
-    private static func run(_ tool: String, _ arguments: [String], in directory: URL? = nil) throws {
+    /// The Word document laid out on paper of this size, in points, landscape when it's wider than tall, with inch margins.
+    static func sized(_ document: String, to paper: CGSize) -> String {
+        let landscape = paper.width > paper.height
+        let size = #"<w:pgSz w:w="\#(Int(paper.width * 20))" w:h="\#(Int(paper.height * 20))"\#(landscape ? #" w:orient="landscape""# : "")/>"#
+        let margins = #"<w:pgMar w:top="1440" w:right="1440" w:bottom="1440" w:left="1440" w:header="720" w:footer="720" w:gutter="0"/>"#
+        var document = document
+        for tag in ["pgSz", "pgMar"] {
+            document = document.replacingOccurrences(of: "<w:\(tag)[^>]*/>", with: "", options: .regularExpression)
+        }
+        if let range = document.range(of: "<w:sectPr[^>]*/>", options: .regularExpression) {
+            document.replaceSubrange(range, with: "<w:sectPr>" + size + margins + "</w:sectPr>")
+        } else if let range = document.range(of: "<w:sectPr[^>]*>", options: .regularExpression) {
+            document.insert(contentsOf: size + margins, at: range.upperBound)
+        } else if let end = document.range(of: "</w:body>", options: .backwards) {
+            document.insert(contentsOf: "<w:sectPr>" + size + margins + "</w:sectPr>", at: end.lowerBound)
+        }
+        return document
+    }
+
+    static func run(_ tool: String, _ arguments: [String], in directory: URL? = nil) throws {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: tool)
         process.arguments = arguments

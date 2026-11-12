@@ -49,14 +49,14 @@ final class Viewer {
         didSet {
             guard let message else { return }
             Task { @MainActor in
-                try? await Task.sleep(for: .seconds(4))
+                try? await Task.sleep(for: .seconds(6))
                 if self.message == message { self.message = nil }
             }
         }
     }
     /// Picking a tool puts down the selected mark: at once, so a tool that places a mark can then select it. On iOS any tool
     /// but Select starts Markup.
-    var tool = Tool.select {
+    var tool = Tool.browsing {
         didSet {
             canvas.selected = nil
             #if os(iOS)
@@ -67,6 +67,8 @@ final class Viewer {
     /// The mark the select tool picked, for the views: the page view's `selected`.
     var mark: PDFAnnotation?
     var color = NSColor.systemYellow
+    /// How the text box tool writes, and the selected text box's style.
+    var textStyle = TextStyle.saved
     /// The index of the page in view.
     var pageIndex = 0
     /// A note just added, whose comment field takes the keys.
@@ -92,6 +94,8 @@ final class Viewer {
         self.tool = tool
         #if os(iOS)
         if places { message = String(localized: "Tap where it goes, or drag to size it") }
+        #else
+        if places { message = String(localized: "Click where it goes, or drag to size it") }
         #endif
     }
 
@@ -99,7 +103,7 @@ final class Viewer {
     /// Ends Markup and Organize Pages, which iPad's keys can start one over the other, for reading.
     func backToReading() {
         if organizing { organize() } else { settle() }
-        tool = .select
+        tool = Tool.browsing
         markingUp = false
     }
     #endif
@@ -281,9 +285,9 @@ final class Viewer {
 
     /// Copies the target pages into a document of their own, for the window to save. Pages of a protected file stay
     /// protected: by its new password and restrictions, or its own.
-    func extract() {
+    func extract(_ chosen: [PDFPage]? = nil) {
         settle()
-        let pages = FolioDocument(pdf: doc.extract(targetPages))
+        let pages = FolioDocument(pdf: doc.extract(chosen ?? targetPages))
         (pages.newPassword, pages.newRestrictions) = (doc.keptPassword, doc.keptRestrictions)
         extracted = pages
     }
@@ -343,7 +347,8 @@ final class Viewer {
     }
 
     #if os(macOS)
-    /// Rewrites the document smaller, staying on its page, and says by how much, or that it can't be.
+    /// Rewrites the document smaller, staying on its page, and says in a dialog by how much, or that it can't be: a line
+    /// over the pages went by unseen.
     func reduceFileSize() {
         settle()
         busy = String(localized: "Reducing file size…")
@@ -351,14 +356,42 @@ final class Viewer {
             resume = pageIndex
             let sizes = await doc.reduceFileSize()
             busy = nil
-            guard let sizes else {
+            let alert = NSAlert()
+            if let sizes {
+                let size = { (bytes: Int) in ByteCountFormatter.string(fromByteCount: Int64(bytes), countStyle: .file) }
+                let saved = Int((1 - Double(sizes.after) / Double(max(sizes.before, 1))) * 100)
+                alert.messageText = String(localized: "File size reduced")
+                alert.informativeText = "\(size(sizes.before)) → \(size(sizes.after))  (−\(saved) %)\n\n"
+                    + String(localized: "Save the file (⌘S) to keep it, or Undo to go back.")
+            } else {
                 resume = nil
-                message = String(localized: "Already as small as it gets")
-                return
+                alert.messageText = String(localized: "Already as small as it gets")
+                alert.informativeText = String(localized: "This file has no pictures to make smaller, so it stays as it is.")
             }
-            let size = { (bytes: Int) in ByteCountFormatter.string(fromByteCount: Int64(bytes), countStyle: .file) }
-            message = "\(size(sizes.before)) → \(size(sizes.after))"
+            if let window = canvas.window { _ = await alert.beginSheetModal(for: window) } else { alert.runModal() }
         }
+    }
+
+    /// Combine Files from a document: the files chosen, PDFs and pictures, go on the end of it, in the order of their names,
+    /// to move where they belong in the sidebar, and it says how many pages came in.
+    func combineFiles() {
+        settle()
+        let panel = NSOpenPanel()
+        panel.allowsMultipleSelection = true
+        panel.allowedContentTypes = [.pdf, .image]
+        panel.message = String(localized: "Choose the files to add to the end of this document.")
+        panel.prompt = String(localized: "Combine")
+        guard panel.runModal() == .OK else { return }
+        let urls = panel.urls.sorted { $0.lastPathComponent.localizedStandardCompare($1.lastPathComponent) == .orderedAscending }
+        let pages = FolioDocument.pages(from: urls)
+        guard !pages.isEmpty else {
+            message = String(localized: "Found no pages to insert: a PDF with a password or restrictions gives none")
+            return
+        }
+        let first = doc.pdf.pageCount
+        doc.insert(pages, at: first)
+        go(toPage: first + 1)
+        message = String(localized: "Added \(pages.count) pages from \(urls.count) files to the end")
     }
     #endif
 }
@@ -904,7 +937,11 @@ struct Sidebar: View {
             .labelStyle(.iconOnly)
             .padding(8)
             switch viewer.pane {
+            #if os(macOS)
+            case .thumbnails: PageList(viewer: viewer)
+            #else
             case .thumbnails: Thumbnails(canvas: viewer.canvas)
+            #endif
             case .bookmarks: Bookmarks(viewer: viewer)
             case .comments: Comments(viewer: viewer)
             }
@@ -1090,6 +1127,9 @@ struct Bars: View {
                 HStack { ProgressView().controlSize(.small); Text(busy) }.pill()
             }
             if let message = viewer.message { Text(message).pill() }
+            #if os(macOS)
+            FormatBar(viewer: viewer)
+            #endif
         }
         .padding(.top, 12)
     }

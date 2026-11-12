@@ -243,7 +243,9 @@ struct FolioCommands: Commands {
             }
         }
         CommandGroup(after: .newItem) {
-            Button("Combine Files…") { Combine.choose() }.keyboardShortcut("n", modifiers: [.command, .option])
+            // In a document, the files go on the end of it; with none open, into a new one.
+            Button("Combine Files…") { if let viewer { viewer.combineFiles() } else { Combine.choose() } }
+                .keyboardShortcut("n", modifiers: [.command, .option])
             BatchButton()
         }
         // SwiftUI shows Save As only while Option is held, in Duplicate's place.
@@ -361,6 +363,7 @@ struct ToolsMenu: View {
         Button("Compare Documents…") { viewer?.sheet = .compare }.disabled(viewer?.doc.pdf.isLocked ?? true)
         Menu("Export") {
             Button("To Word…") { if let viewer { Export.run(.word, viewer: viewer, name: viewer.exportName) } }
+            Button("To Excel…") { if let viewer { Export.run(.excel, viewer: viewer, name: viewer.exportName) } }
             Button("To Text…") { if let viewer { Export.run(.text, viewer: viewer, name: viewer.exportName) } }
             Button("To Pictures…") { if let viewer { Export.run(.images, viewer: viewer, name: viewer.exportName) } }
         }
@@ -372,9 +375,9 @@ struct ToolsMenu: View {
             Button("Send Page as Picture") {}.disabled(true)
         }
         Divider()
-        Button("Edit Signature…") { viewer?.sheet = .signature(.sign) }.disabled(viewer == nil)
-        Button("Edit Initials…") { viewer?.sheet = .signature(.initial) }.disabled(viewer == nil)
-        Button("Edit Stamp…") { viewer?.sheet = .signature(.stamp) }.disabled(viewer == nil)
+        Button("New Signature…") { viewer?.sheet = .signature(.sign) }.disabled(viewer == nil)
+        Button("New Initials…") { viewer?.sheet = .signature(.initial) }.disabled(viewer == nil)
+        Button("New Stamp…") { viewer?.sheet = .signature(.stamp) }.disabled(viewer == nil)
         #if os(macOS)
         Divider()
         Button("Show Fonts") { NSFontManager.shared.orderFrontFontPanel(nil) }.keyboardShortcut("t").disabled(viewer == nil)

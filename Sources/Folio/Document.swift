@@ -62,9 +62,12 @@ final class FolioDocument: ReferenceFileDocument, @unchecked Sendable {
         #endif
     }
 
-    static func blankPage() -> PDFPage {
+    /// A blank page the size of `like` and turned as it is, so one put among landscape pages is landscape too, or of the
+    /// usual paper with none.
+    static func blankPage(like: PDFPage? = nil) -> PDFPage {
         let page = PDFPage()
-        page.setBounds(CGRect(origin: .zero, size: paper), for: .mediaBox)
+        page.setBounds(CGRect(origin: .zero, size: like?.bounds(for: .cropBox).size ?? paper), for: .mediaBox)
+        page.rotation = like?.rotation ?? 0
         return page
     }
 
