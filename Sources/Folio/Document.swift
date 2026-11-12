@@ -23,6 +23,9 @@ final class FolioDocument: ReferenceFileDocument, @unchecked Sendable {
     /// What the file allows without its permissions password once it's saved, when that was set here.
     var newRestrictions: Restrictions?
     @ObservationIgnored weak var undo: UndoManager?
+    /// Whether bookmarks were added, renamed or deleted here: PDFKit writes a file's bookmarks as the file had them, so then
+    /// it's saved through a fresh document. See `writable`.
+    @ObservationIgnored var bookmarksEdited = false
 
     init() {
         pdf = PDFDocument()
@@ -75,7 +78,7 @@ final class FolioDocument: ReferenceFileDocument, @unchecked Sendable {
             options[.ownerPasswordOption] = newRestrictions.password
             options[.accessPermissionsOption] = newRestrictions.permissions
         }
-        guard !pdf.isLocked, let data = pdf.dataRepresentation(options: options) else { throw CocoaError(.fileWriteUnknown) }
+        guard !pdf.isLocked, let data = writable.dataRepresentation(options: options) else { throw CocoaError(.fileWriteUnknown) }
         // PDFKit writes a file it can't protect, as with a password not in ASCII, unprotected, and says nothing: the file must
         // open only with its password, and keep to its restrictions until their password is given, or it isn't saved.
         if !options.isEmpty, PDFDocument(data: data).map(isProtected) != true { throw CocoaError(.fileWriteUnknown) }

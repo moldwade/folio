@@ -22,10 +22,15 @@ struct FolioApp: App {
         DocumentGroup(newDocument: {
             #if os(iOS)
             if #available(iOS 27, *) { Self.noteWhichButton() }
+            #else
+            if let combined = Combine.take() { return combined }
             #endif
             return FolioDocument()
         }) { DocumentView(doc: $0.document, url: $0.fileURL) }
             .commands { FolioCommands() }
+            #if os(macOS)
+            .defaultSize(width: 1280, height: 880)
+            #endif
             #if os(macOS)
             // The home window opens at launch, not the Open panel.
             .defaultLaunchBehavior(.suppressed)
@@ -36,6 +41,11 @@ struct FolioApp: App {
             .restorationBehavior(.disabled)
             .windowStyle(.hiddenTitleBar)
             .defaultSize(width: 760, height: 520)
+        // Opened from File › Batch Process… only, never at launch.
+        Window("Batch Process", id: "batch") { BatchSheet() }
+            .windowResizability(.contentSize)
+            .restorationBehavior(.disabled)
+            .defaultLaunchBehavior(.suppressed)
         #else
         DocumentGroupLaunchScene("Folio", backgroundStyle: LinearGradient(colors: [Color(red: 0xE5 / 255, green: 0x48 / 255, blue: 0x4D / 255),
                                                                                     Color(red: 0x9E / 255, green: 0x1B / 255, blue: 0x25 / 255)],
@@ -135,6 +145,55 @@ final class AppDelegate: UIResponder, UIApplicationDelegate {
 #endif
 
 #if os(macOS)
+/// Combine Files: one new document of the pages of several PDFs and pictures, in the order of their names, to reorder in
+/// Organize Pages and save where you like.
+enum Combine {
+    /// The document File › New makes next, in place of a blank one. SwiftUI makes documents away from the main thread too,
+    /// as it opens files, so it's behind a lock.
+    nonisolated(unsafe) private static var pending: FolioDocument?
+    private static let lock = NSLock()
+
+    /// The document waiting for File › New, taken so the next one is blank again.
+    static func take() -> FolioDocument? {
+        lock.withLock {
+            defer { pending = nil }
+            return pending
+        }
+    }
+
+    @MainActor static func choose() {
+        let panel = NSOpenPanel()
+        panel.allowsMultipleSelection = true
+        panel.allowedContentTypes = [.pdf, .image]
+        panel.message = String(localized: "Choose the files to combine, in any order: they go in by name.")
+        panel.prompt = String(localized: "Combine")
+        guard panel.runModal() == .OK else { return }
+        combine(panel.urls)
+    }
+
+    @MainActor static func combine(_ urls: [URL]) {
+        let sorted = urls.sorted { $0.lastPathComponent.localizedStandardCompare($1.lastPathComponent) == .orderedAscending }
+        let pages = FolioDocument.pages(from: sorted)
+        guard !pages.isEmpty else {
+            let alert = NSAlert()
+            alert.messageText = String(localized: "Found no pages to insert: a PDF with a password or restrictions gives none")
+            alert.runModal()
+            return
+        }
+        let pdf = PDFDocument()
+        for page in pages { pdf.insert(page, at: pdf.pageCount) }
+        let made = FolioDocument(pdf: pdf)
+        lock.withLock { pending = made }
+        NSDocumentController.shared.newDocument(nil)
+    }
+}
+
+/// File › Batch Process…, which opens its window.
+struct BatchButton: View {
+    @Environment(\.openWindow) private var openWindow
+    var body: some View { Button("Batch Process…") { openWindow(id: "batch") } }
+}
+
 /// The language of Folio's words, chosen in the Folio menu: it overrides the Mac's language for Folio alone, for a Mac whose
 /// first language isn't the one its user wants Folio in.
 enum AppLanguage {
@@ -182,6 +241,10 @@ struct FolioCommands: Commands {
                     }
                 }
             }
+        }
+        CommandGroup(after: .newItem) {
+            Button("Combine Files…") { Combine.choose() }.keyboardShortcut("n", modifiers: [.command, .option])
+            BatchButton()
         }
         // SwiftUI shows Save As only while Option is held, in Duplicate's place.
         CommandGroup(after: .saveItem) {
@@ -235,6 +298,9 @@ struct FolioCommands: Commands {
                 .disabled(viewer?.doc.pdf.isLocked ?? true)
             Divider()
             PageActions(viewer: viewer)
+            #if os(macOS)
+            Button("Crop Pages…") { viewer?.sheet = .crop }.disabled(!(viewer?.isIdle ?? false))
+            #endif
         }
         CommandMenu("Tools") { ToolsMenu(viewer: viewer) }
         #if os(macOS)
@@ -268,13 +334,38 @@ struct ToolsMenu: View {
     var body: some View {
         let idle = viewer?.isIdle ?? false
         Button("Recognize Text") { viewer?.recognizeText() }.disabled(!idle)
+        #if os(macOS)
+        Button("Find & Redact…") { viewer?.sheet = .findRedact }.disabled(!idle)
+        #endif
         Button("Apply Redactions") { viewer?.applyRedactions() }.disabled(!idle || viewer?.doc.hasRedactions != true)
         #if os(macOS)
         Button("Reduce File Size") { viewer?.reduceFileSize() }.disabled(!idle)
         #endif
+        #if os(macOS)
+        Button("Sign with Certificate…") { viewer?.sheet = .digitalSignature }.disabled(!idle || viewer?.doc.pdf.hasFullRights != true)
+        #endif
         Button("Password…") { viewer?.sheet = .protect }.disabled(!idle || viewer?.doc.pdf.hasFullRights != true)
         Button("Properties…") { viewer?.sheet = .properties }.disabled(!idle)
         Button("Add to Every Page") { viewer?.addToEveryPage() }.disabled(viewer?.canAddToEveryPage != true)
+        #if os(macOS)
+        Divider()
+        Button("Add Picture…") { viewer?.addPicture() }.disabled(!idle)
+        Button("Flatten") { viewer?.flatten() }.disabled(!idle)
+        Button("Watermark…") { viewer?.sheet = .watermark }.disabled(!idle)
+        Button("Header & Footer…") { viewer?.sheet = .headerFooter(pageNumbers: false) }.disabled(!idle)
+        Button("Page Numbers…") { viewer?.sheet = .headerFooter(pageNumbers: true) }.disabled(!idle)
+        Menu("Text Stamps") {
+            ForEach(TextStamp.allCases) { stamp in Button(stamp.words) { viewer?.place(stamp) } }
+        }
+        .disabled(!idle)
+        Button("Compare Documents…") { viewer?.sheet = .compare }.disabled(viewer?.doc.pdf.isLocked ?? true)
+        Menu("Export") {
+            Button("To Word…") { if let viewer { Export.run(.word, viewer: viewer, name: viewer.exportName) } }
+            Button("To Text…") { if let viewer { Export.run(.text, viewer: viewer, name: viewer.exportName) } }
+            Button("To Pictures…") { if let viewer { Export.run(.images, viewer: viewer, name: viewer.exportName) } }
+        }
+        .disabled(viewer?.doc.pdf.isLocked ?? true)
+        #endif
         if let viewer, !viewer.doc.pdf.isLocked, viewer.doc.pdf.permissionsStatus == .owner || viewer.doc.pdf.allowsCopying {
             ShareLink("Send Page as Picture", item: PagePicture(viewer: viewer), preview: SharePreview("Page \(viewer.pageIndex + 1)"))
         } else {

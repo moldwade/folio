@@ -4,6 +4,7 @@ import UniformTypeIdentifiers
 
 enum Tool: String, CaseIterable, Identifiable {
     case select, highlight, underline, strike, note, text, rect, oval, line, arrow, pen, sign, initial, stamp, date, editText, redact
+    case textField, checkBox
 
     var id: Self { self }
 
@@ -27,6 +28,8 @@ enum Tool: String, CaseIterable, Identifiable {
         case .date: "Date"
         case .editText: "Edit Text"
         case .redact: "Redact"
+        case .textField: "Text Field"
+        case .checkBox: "Check Box"
         }
         return NSLocalizedString(english, comment: "")
     }
@@ -50,6 +53,8 @@ enum Tool: String, CaseIterable, Identifiable {
         case .date: "calendar"
         case .editText: "character.cursor.ibeam"
         case .redact: "rectangle.fill"
+        case .textField: "character.textbox"
+        case .checkBox: "checkmark.square"
         }
     }
 
@@ -73,6 +78,8 @@ enum Tool: String, CaseIterable, Identifiable {
         case .date: "d"
         case .editText: "e"
         case .redact: "x"
+        case .textField: "f"
+        case .checkBox: "b"
         }
     }
 

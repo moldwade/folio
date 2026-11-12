@@ -229,7 +229,7 @@ final class Canvas: PDFView {
                 start = nil
                 viewer.sheet = .signature(viewer.tool)
             }
-        case .rect, .oval, .line, .arrow, .pen, .redact:
+        case .rect, .oval, .line, .arrow, .pen, .redact, .textField, .checkBox:
             break
         }
         return true
@@ -244,7 +244,7 @@ final class Canvas: PDFView {
             guard let selected, let origin else { return false }
             selected.bounds = origin.offsetBy(dx: point.x - from.x, dy: point.y - from.y)
             outlineSelection()
-        case .rect, .oval, .line, .arrow, .redact, .pen, .sign, .initial, .stamp:
+        case .rect, .oval, .line, .arrow, .redact, .pen, .sign, .initial, .stamp, .textField, .checkBox:
             stroke.append(point)
             draft.map(page.removeAnnotation)
             draft = switch viewer.tool {
@@ -279,6 +279,11 @@ final class Canvas: PDFView {
             viewer.doc.add(draft, to: page, name: viewer.tool == .pen ? "Draw" : viewer.tool == .redact ? "Mark for Redaction" : "Add Shape")
             // A mark alone hides nothing in the file.
             if viewer.tool == .redact { viewer.message = String(localized: "Tools › Apply Redactions takes out what's under the marks") }
+        case .textField, .checkBox:
+            draft.map(page.removeAnnotation)
+            let field = formField(viewer.tool, from: from, to: point, on: page)
+            viewer.doc.add(field, to: page, name: "Add Form Field")
+            viewer.tool = .select
         case .sign, .initial, .stamp:
             guard let signature = Signature[viewer.tool] else { return }
             draft.map(page.removeAnnotation)

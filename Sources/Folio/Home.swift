@@ -6,6 +6,7 @@ import UniformTypeIdentifiers
 /// The window Folio opens on: the files opened lately, a click from opening again, and a button for any other.
 struct Home: View {
     @Environment(\.openDocument) private var openDocument
+    @Environment(\.openWindow) private var openWindow
     @State private var recents: [URL] = []
     @State private var isDefault = true
     @State private var askingToBeDefault = false
@@ -20,13 +21,17 @@ struct Home: View {
                 if !isDefault {
                     Button("Make Default PDF App", action: makeDefault).controlSize(.large)
                 }
+                Button("Batch Process…") { openWindow(id: "batch") }
+                    .controlSize(.large)
+                Button("Combine Files…") { Combine.choose() }
+                    .controlSize(.large)
                 Button("Open…") { NSDocumentController.shared.openDocument(nil) }
                     .buttonStyle(.borderedProminent)
                     .controlSize(.large)
             }
             if recents.isEmpty {
                 ContentUnavailableView("No Recent Files", systemImage: "doc.richtext",
-                                       description: Text("PDFs you open show up here. You can also drop one on this window."))
+                                       description: Text("PDFs you open show up here. Drop one on this window to open it, or several to combine them."))
             } else {
                 Text("Recent").font(.headline).foregroundStyle(.secondary)
                 ScrollView {
@@ -40,7 +45,8 @@ struct Home: View {
         .frame(minWidth: 560, minHeight: 400)
         .dropDestination(for: URL.self) { urls, _ in
             let pdfs = urls.filter { UTType(filenameExtension: $0.pathExtension)?.conforms(to: .pdf) == true }
-            pdfs.forEach(open)
+            // One PDF dropped opens; several are combined into one.
+            if pdfs.count > 1 { Combine.combine(pdfs) } else { pdfs.forEach(open) }
             return !pdfs.isEmpty
         }
         .onAppear {

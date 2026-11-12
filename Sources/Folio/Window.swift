@@ -16,6 +16,7 @@ final class Viewer {
         /// The pad for the sign tool's signature, the initial tool's initials, or the stamp tool's stamp.
         case signature(Tool)
         case protect, properties, split
+        case watermark, headerFooter(pageNumbers: Bool), compare, crop, findRedact, digitalSignature
 
         var id: Self { self }
     }
@@ -136,6 +137,8 @@ final class Viewer {
 
     /// The page to open at when the pages first show: where the file was left last time.
     @ObservationIgnored var resume: Int?
+    /// What files made from the document are named after: its own file's name.
+    @ObservationIgnored var exportName = String(localized: "Untitled")
 
     /// Puts the pages in the page view, unless the file is locked: PDFKit would ask for its password a second time.
     func showPages() {
@@ -387,6 +390,7 @@ struct DocumentView: View {
     init(doc: FolioDocument, url: URL?) {
         let viewer = Viewer(doc: doc)
         viewer.resume = url.flatMap(Viewer.lastPage)
+        if let url { viewer.exportName = url.deletingPathExtension().lastPathComponent }
         _viewer = State(initialValue: viewer)
         self.url = url
     }
@@ -411,12 +415,7 @@ struct DocumentView: View {
                     viewer.doc.set(\.color, of: a, to: viewer.color, name: "Change Colour")
                 }
             }
-            .sheet(item: $viewer.sheet) { sheet in
-                if case .signature(let tool) = sheet { SignatureSheet(viewer: viewer, tool: tool) }
-                if sheet == .protect { PasswordSheet(viewer: viewer) }
-                if sheet == .properties { PropertiesSheet(viewer: viewer) }
-                if sheet == .split { SplitSheet(viewer: viewer, name: name) }
-            }
+            .sheet(item: $viewer.sheet) { sheetView($0) }
             .fileImporter(isPresented: $viewer.choosingPages, allowedContentTypes: [.pdf, .image], allowsMultipleSelection: true) { result in
                 guard let urls = try? result.get().sorted(by: { $0.lastPathComponent.localizedStandardCompare($1.lastPathComponent) == .orderedAscending }),
                       !urls.isEmpty else { return }
@@ -443,11 +442,20 @@ struct DocumentView: View {
             .onChange(of: undoManager) { viewer.doc.undo = undoManager }
     }
 
-    /// Starts organizing the pages, and ends it.
-    private var organizeButton: some View {
-        Button("Organize Pages", systemImage: viewer.organizing ? "square.grid.2x2.fill" : "square.grid.2x2") { viewer.organize() }
-            .help("Organize Pages")
-            .disabled(viewer.doc.pdf.isLocked)
+    /// The sheet a tool asked for.
+    @ViewBuilder private func sheetView(_ sheet: Viewer.Sheet) -> some View {
+        if case .signature(let tool) = sheet { SignatureSheet(viewer: viewer, tool: tool) }
+        if sheet == .protect { PasswordSheet(viewer: viewer) }
+        if sheet == .properties { PropertiesSheet(viewer: viewer) }
+        if sheet == .split { SplitSheet(viewer: viewer, name: name) }
+        #if os(macOS)
+        if sheet == .watermark { WatermarkSheet(viewer: viewer) }
+        if case .headerFooter(let numbers) = sheet { HeaderFooterSheet(viewer: viewer, file: name, marks: numbers ? .pageNumbers : .init()) }
+        if sheet == .compare { CompareSheet(viewer: viewer, name: name) }
+        if sheet == .crop { CropSheet(viewer: viewer) }
+        if sheet == .findRedact { FindRedactSheet(viewer: viewer) }
+        if sheet == .digitalSignature { DigitalSignatureSheet(viewer: viewer, name: name) }
+        #endif
     }
 
     /// The page in view, as a number to type over, and the count.
@@ -467,18 +475,20 @@ struct DocumentView: View {
 
     #if os(macOS)
     private var layout: some View {
-        NavigationSplitView(columnVisibility: $columns) {
-            Sidebar(viewer: viewer)
-                .navigationSplitViewColumnWidth(min: 180, ideal: 220)
-        } detail: {
-            PageView(viewer: viewer)
-                .overlay { if viewer.organizing { Organizer(viewer: viewer) } }
-                .overlay(alignment: .top) { Bars(viewer: viewer) }
-                .safeAreaInset(edge: .top, spacing: 0) { if !viewer.readMode { ToolBar(viewer: viewer) } }
+        // The ribbon spans the window, over the sidebar too, as Foxit's does.
+        VStack(spacing: 0) {
+            if !viewer.readMode { Ribbon(viewer: viewer, name: name) { searching = true } }
+            NavigationSplitView(columnVisibility: $columns) {
+                Sidebar(viewer: viewer)
+                    .navigationSplitViewColumnWidth(min: 180, ideal: 220)
+            } detail: {
+                PageView(viewer: viewer)
+                    .overlay { if viewer.organizing { Organizer(viewer: viewer) } }
+                    .overlay(alignment: .top) { Bars(viewer: viewer) }
+                    .safeAreaInset(edge: .bottom, spacing: 0) { if !viewer.readMode { StatusBar(viewer: viewer) } }
+            }
         }
         .toolbar {
-            ToolbarItem { organizeButton }
-            ToolbarItem { pageBox }
             ToolbarItem { Text(viewer.matchLabel).foregroundStyle(.secondary).monospacedDigit() }
         }
         .toolbar(viewer.readMode ? .hidden : .visible, for: .windowToolbar)
@@ -940,21 +950,40 @@ extension PDFOutline: @retroactive Identifiable {
 
 struct Bookmarks: View {
     let viewer: Viewer
+    @State private var renaming: PDFOutline?
+    @State private var name = ""
 
     var body: some View {
         let _ = viewer.doc.revision
-        if let items = viewer.doc.pdf.outlineRoot?.kids {
-            List(items, children: \.kids) { item in
-                Text(item.label ?? "")
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .contentShape(Rectangle())
-                    // A bookmark goes to its page by a destination or by a go-to action, which has none.
-                    .onTapGesture {
-                        if let destination = item.destination ?? (item.action as? PDFActionGoTo)?.destination { viewer.canvas.go(to: destination) }
-                    }
+        VStack(spacing: 0) {
+            if let items = viewer.doc.pdf.outlineRoot?.kids {
+                List(items, children: \.kids) { item in
+                    Text(item.label ?? "")
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .contentShape(Rectangle())
+                        // A bookmark goes to its page by a destination or by a go-to action, which has none.
+                        .onTapGesture {
+                            if let destination = item.destination ?? (item.action as? PDFActionGoTo)?.destination { viewer.canvas.go(to: destination) }
+                        }
+                        .contextMenu {
+                            Button("Rename…") { name = item.label ?? ""; renaming = item }
+                            Button("Delete", role: .destructive) { viewer.doc.delete(item) }
+                        }
+                        .disabled(!viewer.doc.canEdit)
+                }
+            } else {
+                ContentUnavailableView("No Bookmarks", systemImage: "bookmark")
             }
-        } else {
-            ContentUnavailableView("No Bookmarks", systemImage: "bookmark")
+            Divider()
+            Button("Add Bookmark", systemImage: "bookmark.fill") { viewer.addBookmark() }
+                .buttonStyle(.borderless)
+                .padding(6)
+                .disabled(!viewer.isIdle)
+        }
+        .alert("Rename Bookmark", isPresented: Binding { renaming != nil } set: { if !$0 { renaming = nil } }) {
+            TextField("Name", text: $name)
+            Button("Rename") { if let renaming, !name.isEmpty { viewer.doc.rename(renaming, to: name) } }
+            Button("Cancel", role: .cancel) {}
         }
     }
 }

@@ -20,6 +20,14 @@
 
 ## Features
 
+- **Ribbon, as in Foxit.** The tools sit in tabs over the pages: Home, Comment, Edit, Pages, Convert, Fill & Sign, Protect and Tools, each with big buttons in named groups. A bar at the foot goes through the pages, sets the zoom and the page layout.
+- **Watermark, header and footer, page numbers.** Edit › Watermark puts words across every page, or this one, at an angle, faint, over or under what's there. Header & Footer puts words at the top and foot, left, centre or right, with the page number, the page count, the date or the file's name; Page Numbers does "Page 3 of 12" in one click. They're drawn into the pages, so every app shows and prints them, and Undo takes them off.
+- **Word stamps.** PLAĆENO, ODOBRENO, PRIMLJENO, KOPIJA, POVJERLJIVO, NACRT and ODBIJENO, framed, coloured and dated, to drag into place. Edit › Picture… puts any picture on the page.
+- **Combine and convert.** File › Combine Files… (⌥⌘N) makes one document of several PDFs and pictures, in the order of their names; dropping several PDFs on the home window does the same. Convert saves the words as a Word file, laid out as on the page, each line where it starts, a table's columns at tab stops and the pictures, a logo say, in their place, or as plain text, or each page as a picture.
+- **Crop, flatten, find and redact.** Pages › Crop Pages… trims the margins. Flatten draws marks, stamps, signatures and filled-in forms into the pages for good. Find & Redact… marks every place some words appear, an account number say, for Apply Redactions to take out.
+- **Bookmarks and forms.** Add a bookmark to the page in view, and rename or delete one from its menu in the sidebar; they're saved with the file. Fill & Sign › Text Field and Check Box draw form fields, named Field 1, Field 2 and so on, that any app can fill in.
+- **Sign with a certificate.** Protect › Sign with Certificate… signs a copy of the document with a certificate from the Keychain, such as one on a FINA or IDDEEA card: a PKCS #7 signature over the whole file that Acrobat, Foxit and Preview check, and that any later change breaks.
+- **Compare and batch.** Tools › Compare Documents shows, page by page, the words one version has and the other hasn't. File › Batch Process… reduces the size of, numbers the pages of, watermarks, or recognizes the text of many files at once, each saved beside its original.
 - **Home.** Folio opens on your recent files, shown as thumbnails. Click one to open it, or drop a PDF on the window. Each file reopens at the page you left it on.
 - **Read.** The sidebar shows thumbnails, bookmarks and every comment. View one page, a continuous scroll or two pages side by side, zoom with a pinch or ⌘ and the scroll wheel, and switch to a full-screen Read Mode. Type a page number in the toolbar to go to it. Find counts the matches and steps through them.
 - **Mark up.** Highlight, underline, strike through, add notes and text boxes, and draw rectangles, ovals, lines, arrows and freehand ink, in any colour. Select a mark to drag it, nudge it with the arrow keys, recolour it, or delete it with the Delete key or the trash in the tool bar. Right-click any mark to delete it, whatever the tool. A signature, note or text box you place stays selected, ready to drag into place. Single keys pick the tools: V Select, H Highlight, T Text Box, S Sign, C Stamp, D Date. Each tool's tooltip shows its key.
@@ -72,7 +80,8 @@ This builds and signs `build/Folio.app`, then opens it. To keep Folio, copy `bui
 
 ## Roadmap
 
-- **Bookmarks:** add, rename and delete bookmarks. PDFKit saves the bookmarks of a file it read as the file had them, whatever is changed, so Folio needs to write them into the file itself.
+- **Long-term signatures:** a trusted timestamp and the certificate's revocation data in the signature (PAdES-LT), so it still checks once the certificate has expired.
+- **Word with lines and boxes:** To Word lays out the words and pictures as on the page, but leaves out drawn lines and boxes.
 
 ## License
 
