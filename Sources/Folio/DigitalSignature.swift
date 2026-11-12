@@ -199,10 +199,10 @@ import SwiftUI
 struct DigitalSignatureSheet: View {
     let viewer: Viewer
     let name: String
-    @State private var identities: [(name: String, identity: SecIdentity)] = []
-    @State private var chosen = 0
-    @State private var reason = String(localized: "Approved")
-    @State private var failure: String?
+    @ViewState private var identities: [(name: String, identity: SecIdentity)] = []
+    @ViewState private var chosen = 0
+    @ViewState private var reason = String(localized: "Approved")
+    @ViewState private var failure: String?
     @Environment(\.dismiss) private var dismiss
 
     var body: some View {

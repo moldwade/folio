@@ -322,7 +322,7 @@ extension EnvironmentValues {
 struct RibbonButtonStyle: ButtonStyle {
     var picked = false
     @Environment(\.isEnabled) private var isEnabled
-    @State private var hovering = false
+    @ViewState private var hovering = false
 
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
@@ -340,7 +340,7 @@ struct RibbonButtonStyle: ButtonStyle {
 /// The bar at the foot of the window, as Foxit's: going through the pages, the zoom, and the way pages are laid out.
 struct StatusBar: View {
     @Bindable var viewer: Viewer
-    @State private var zoom: CGFloat = 1
+    @ViewState private var zoom: CGFloat = 1
 
     var body: some View {
         let count = viewer.doc.pdf.pageCount, at = viewer.pageIndex

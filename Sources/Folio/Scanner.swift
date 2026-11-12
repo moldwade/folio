@@ -468,7 +468,7 @@ private final class ScannerHost: UIHostingController<ScannerView> {
 
 private struct ScannerView: View {
     @Bindable var scanner: Scanner
-    @State private var discarding = false
+    @ViewState private var discarding = false
 
     var body: some View {
         VStack(spacing: 0) {
@@ -637,8 +637,8 @@ private final class CameraPreview: UIView {
 /// The pages scanned so far, one at a time, to crop, turn, clean up another way or delete.
 private struct ReviewView: View {
     let scanner: Scanner
-    @State private var shown: Scanner.Page.ID?
-    @State private var cropping = false
+    @ViewState private var shown: Scanner.Page.ID?
+    @ViewState private var cropping = false
 
     var body: some View {
         NavigationStack {
@@ -705,10 +705,10 @@ private struct ReviewView: View {
 private struct CropView: View {
     let scanner: Scanner
     let page: Scanner.Page
-    @State private var corners: [CGPoint] = []
-    @State private var photo: CGImage?
+    @ViewState private var corners: [CGPoint] = []
+    @ViewState private var photo: CGImage?
     /// The corner being dragged, and where it was on screen as the drag began.
-    @State private var dragging: (corner: Int, from: CGPoint)?
+    @ViewState private var dragging: (corner: Int, from: CGPoint)?
     @Environment(\.dismiss) private var dismiss
 
     var body: some View {

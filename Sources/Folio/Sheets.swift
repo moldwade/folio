@@ -10,15 +10,15 @@ struct SignatureSheet: View {
     let viewer: Viewer
     let tool: Tool
     @Environment(\.dismiss) private var dismiss
-    @State private var way: Way
-    @State private var strokes: [[CGPoint]] = []
-    @State private var drawing = false
-    @State private var name = ""
+    @ViewState private var way: Way
+    @ViewState private var strokes: [[CGPoint]] = []
+    @ViewState private var drawing = false
+    @ViewState private var name = ""
     /// The picture chosen, as a PNG of its ink lifted off the paper, and where it's chosen from.
-    @State private var picture: Data?
-    @State private var noInk = false
-    @State private var photo: PhotosPickerItem?
-    @State private var choosingFile = false
+    @ViewState private var picture: Data?
+    @ViewState private var noInk = false
+    @ViewState private var photo: PhotosPickerItem?
+    @ViewState private var choosingFile = false
     #if os(macOS)
     private let pad = CGSize(width: 480, height: 160)
     #else
@@ -140,11 +140,11 @@ struct SignatureSheet: View {
 struct PasswordSheet: View {
     let viewer: Viewer
     @Environment(\.dismiss) private var dismiss
-    @State private var password: String
-    @State private var again: String
-    @State private var restricts: Bool
-    @State private var restrictions: FolioDocument.Restrictions
-    @State private var permissionsAgain: String
+    @ViewState private var password: String
+    @ViewState private var again: String
+    @ViewState private var restricts: Bool
+    @ViewState private var restrictions: FolioDocument.Restrictions
+    @ViewState private var permissionsAgain: String
 
     init(viewer: Viewer) {
         self.viewer = viewer
@@ -225,7 +225,7 @@ struct PasswordSheet: View {
 struct PropertiesSheet: View {
     let viewer: Viewer
     @Environment(\.dismiss) private var dismiss
-    @State private var values: [String]
+    @ViewState private var values: [String]
 
     init(viewer: Viewer) {
         self.viewer = viewer
@@ -270,10 +270,10 @@ struct SplitSheet: View {
     let viewer: Viewer
     let name: String
     @Environment(\.dismiss) private var dismiss
-    @State private var every = 1
-    @State private var choosing = false
-    @State private var splitting = false
-    @State private var problem: String?
+    @ViewState private var every = 1
+    @ViewState private var choosing = false
+    @ViewState private var splitting = false
+    @ViewState private var problem: String?
 
     var body: some View {
         let count = viewer.doc.pdf.pageCount

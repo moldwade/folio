@@ -315,8 +315,8 @@ enum Compare {
 struct CompareSheet: View {
     let viewer: Viewer
     let name: String
-    @State private var other: URL?
-    @State private var result: [Compare.PageDifference]?
+    @ViewState private var other: URL?
+    @ViewState private var result: [Compare.PageDifference]?
     @Environment(\.dismiss) private var dismiss
 
     var body: some View {
@@ -401,11 +401,11 @@ enum Batch {
 }
 
 struct BatchSheet: View {
-    @State private var files: [URL] = []
-    @State private var action = Batch.Action.reduce
-    @State private var watermark = PageMarks.Watermark()
-    @State private var progress: String?
-    @State private var done: String?
+    @ViewState private var files: [URL] = []
+    @ViewState private var action = Batch.Action.reduce
+    @ViewState private var watermark = PageMarks.Watermark()
+    @ViewState private var progress: String?
+    @ViewState private var done: String?
     @Environment(\.dismiss) private var dismiss
 
     var body: some View {

@@ -7,9 +7,9 @@ import UniformTypeIdentifiers
 struct Home: View {
     @Environment(\.openDocument) private var openDocument
     @Environment(\.openWindow) private var openWindow
-    @State private var recents: [URL] = []
-    @State private var isDefault = true
-    @State private var askingToBeDefault = false
+    @ViewState private var recents: [URL] = []
+    @ViewState private var isDefault = true
+    @ViewState private var askingToBeDefault = false
     @AppStorage("askedToBeDefault") private var askedToBeDefault = false
 
     var body: some View {
@@ -89,8 +89,8 @@ struct Home: View {
 struct RecentFile: View {
     let url: URL
     let open: () -> Void
-    @State private var thumbnail: NSImage?
-    @State private var hovering = false
+    @ViewState private var thumbnail: NSImage?
+    @ViewState private var hovering = false
 
     var body: some View {
         Button(action: open) {

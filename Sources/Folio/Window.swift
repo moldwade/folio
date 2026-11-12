@@ -364,7 +364,7 @@ final class Viewer {
 }
 
 struct DocumentView: View {
-    @State var viewer: Viewer
+    @ViewState var viewer: Viewer
     /// Where the document is saved, if it is.
     let url: URL?
     /// What files made from the document are named after.
@@ -372,19 +372,19 @@ struct DocumentView: View {
     @FocusState private var searching: Bool
     @Environment(\.undoManager) private var undoManager
     #if os(macOS)
-    @State private var columns = NavigationSplitViewVisibility.all
+    @ViewState private var columns = NavigationSplitViewVisibility.all
     @Environment(\.openWindow) private var openWindow
     @Environment(\.dismissWindow) private var dismissWindow
     #else
     @Environment(\.scenePhase) private var scenePhase
-    @State private var guidingDefault = false
+    @ViewState private var guidingDefault = false
     /// What the next document to open was made for, by a button of the launch screen on iOS 27: Create from Photos or Scan
     /// Document, which then show Photos' picker or the scanner.
     enum Making { case photos, scan }
     static var making: Making?
     /// Black over a document made for Scan Document, so its blank page doesn't show as the scanner opens over it and
     /// its pages go in.
-    @State private var covered = DocumentView.making == .scan
+    @ViewState private var covered = DocumentView.making == .scan
     #endif
 
     init(doc: FolioDocument, url: URL?) {
@@ -950,8 +950,8 @@ extension PDFOutline: @retroactive Identifiable {
 
 struct Bookmarks: View {
     let viewer: Viewer
-    @State private var renaming: PDFOutline?
-    @State private var name = ""
+    @ViewState private var renaming: PDFOutline?
+    @ViewState private var name = ""
 
     var body: some View {
         let _ = viewer.doc.revision
@@ -1005,7 +1005,7 @@ struct Comments: View {
 struct CommentRow: View {
     let viewer: Viewer
     let annotation: PDFAnnotation
-    @State private var text = ""
+    @ViewState private var text = ""
     @FocusState private var editing: Bool
 
     var body: some View {
@@ -1050,8 +1050,8 @@ struct CommentRow: View {
 /// What the window says over the pages: the password a file needs, work in progress, and short messages.
 struct Bars: View {
     let viewer: Viewer
-    @State private var password = ""
-    @State private var wrong = false
+    @ViewState private var password = ""
+    @ViewState private var wrong = false
 
     var body: some View {
         let doc = viewer.doc, _ = viewer.doc.revision

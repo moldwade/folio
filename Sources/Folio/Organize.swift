@@ -43,7 +43,7 @@ private struct PageCell: View {
     let selected: Bool
     /// The document's revision, to draw the page again when it changes.
     let revision: Int
-    @State private var image: CGImage?
+    @ViewState private var image: CGImage?
 
     var body: some View {
         VStack(spacing: 6) {

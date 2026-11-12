@@ -204,8 +204,8 @@ extension FolioDocument {
 
 struct WatermarkSheet: View {
     let viewer: Viewer
-    @State private var mark = PageMarks.Watermark()
-    @State private var everyPage = true
+    @ViewState private var mark = PageMarks.Watermark()
+    @ViewState private var everyPage = true
     @Environment(\.dismiss) private var dismiss
 
     var body: some View {
@@ -256,7 +256,7 @@ struct WatermarkSheet: View {
 struct HeaderFooterSheet: View {
     let viewer: Viewer
     let file: String
-    @State var marks: PageMarks.HeaderFooter
+    @ViewState var marks: PageMarks.HeaderFooter
     @Environment(\.dismiss) private var dismiss
 
     var body: some View {
@@ -329,7 +329,7 @@ extension FolioDocument {
 
 struct FindRedactSheet: View {
     let viewer: Viewer
-    @State private var text = ""
+    @ViewState private var text = ""
     @Environment(\.dismiss) private var dismiss
 
     var body: some View {
@@ -358,11 +358,11 @@ struct FindRedactSheet: View {
 
 struct CropSheet: View {
     let viewer: Viewer
-    @State private var top = 10.0
-    @State private var bottom = 10.0
-    @State private var left = 10.0
-    @State private var right = 10.0
-    @State private var everyPage = true
+    @ViewState private var top = 10.0
+    @ViewState private var bottom = 10.0
+    @ViewState private var left = 10.0
+    @ViewState private var right = 10.0
+    @ViewState private var everyPage = true
     @Environment(\.dismiss) private var dismiss
 
     var body: some View {
